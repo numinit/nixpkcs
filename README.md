@@ -21,9 +21,43 @@ strong authentication with smartcard-compatible devices.
 ## Quickstart
 
 - Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixPKCS.overlays.default ]`
-- Choose your PKCS#11 provider. (Right now only the Yubikey is supported, so the only option is `pkgs.yubico-piv-tool`).
+- Choose your PKCS#11 module provider. (Right now only the Yubikey is supported, so the only option is `pkgs.yubico-piv-tool`).
+- Wrap your package using `openssl.withPkcs11Module`.
+
+### `openssl.withPkcs11Module`
+
+- `pkcs11Module`: The PKCS#11 module. Usually `my-package.pkcs11Module`.
+- `package`: The package to wrap. Defaults to `openssl.bin`.
+- `confName`: The config name. Defaults to `"openssl_conf"`. (For instance, nodejs requires `nodejs_conf`).
+- `engineName`: The name of the OpenSSL engine, if engines are enabled. (Default: `pkcs11`)
+- `enableLegacyEngine`: True if we should enable `p11-kit` as an OpenSSL engine. (Default: false, since we prefer OpenSSL providers, which [are not deprecated, unlike engines](https://github.com/openssl/openssl/blob/master/README-ENGINES.md#deprecation-note)). **NOTE**: Enabling this _and_ the provider may cause strange things to happen.
+- `extraEngineOptions`: Extra options to pass to the engine config.
+- `providerName`: The name of the OpenSSL provider (Default: `pkcs11`)
+- `enableProvider`: True if we should enable the OpenSSL provider. (Default: true)
+- `extraProviderOptions`: Extra options to pass to the provider config. See [the docs](https://github.com/latchset/pkcs11-provider/blob/main/docs/provider-pkcs11.7.md#configuration).
+
+### Example: Wrapping node.js
+
+The following will produce a node.js with OPENSSL_CONF pointing to a config that uses `pkcs11-provider`:
+
+```nix
+openssl.withPkcs11Module {
+    inherit (yubico-piv-tool) pkcs11Module;
+    package = nodejs;
+    confName = "nodejs_conf";
+}
+```
+
+This wrapped nodejs can be invoked just like normal nodejs, except that reading PEM files containing references to PKCS#11 keys works now:
+
+```bash
+./result/bin/node -e "const crypto = require('node:crypto'); const fs = require('node:fs'); const privkey = crypto.createPrivateKey(fs.readFileSync('provider.pem').toString('ascii')); const sign = crypto.createSign('SHA256'); sign.update('hello, node'); sign.end(); console.log(sign.sign(privkey));"
+<Buffer 30 65 02 31 00 f4 59 e7 69 3a a3 1e b4 6b 1b c7 b1 43 83 ba 6a 09 17 87 93 3b ee 5c 23 bf 48 c3 34 1d c9 f2 77 8f 40 a6 af 5d b4 10 fe 4e 5e 12 64 e2 ... 53 more bytes>
+```
 
 ## Generating a certificate authority
+
+To do many interesting things with private keys, you might need a certificate authority.
 
 Generally, a single level CA will be sufficient, though you can set up a multi tiered CA if you have multiple Yubikeys or certificate slots you'd like to use.
 
@@ -77,7 +111,9 @@ Leaf certificates will be for clients and servers. A single root certificate (or
 
 ## Appendix
 
-```
+### Polkit rule for pcsc-lite
+
+```nix
 yubikeyPolkitRule = writeTextDir "share/polkit-1/rules.d/10-pcsc.rules" ''
   polkit.addRule(function (action, subject) {
     if (
