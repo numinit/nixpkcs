@@ -69,7 +69,11 @@
               inherit mkKeyValue;
               listsAsDuplicateKeys = true;
             } {
-              globalSection = { ".include" = "${openssl.out}/etc/ssl/openssl.cnf"; };
+              globalSection = {
+                ${addOrder 10 confName} = "openssl_init";
+                ${addOrder 11 ".include"} = "${openssl.out}/etc/ssl/openssl.cnf";
+              };
+
               sections = {
                 openssl_init = {}
                   // (lib.optionalAttrs enableLegacyEngine (addOrderToAttrs 10 { engines = "engine_section"; }))
@@ -84,12 +88,14 @@
                   ${addOrder 12 "MODULE_PATH"} = pkcs11Module.path;
                   ${addOrder 99 "init"} = 1;
                 } // (addOrderToAttrs 20 engineOptions);
-              }) // (lib.optionalAttrs enableProvider {
+              }) // {
                 provider_section = {
                   ${addOrder 10 "default"} = "default_provider_section";
+                } // (lib.optionalAttrs enableProvider {
                   ${addOrder 11 providerName} = "${providerName}_provider_section";
-                };
+                });
                 default_provider_section = (addOrderToAttrs 99 { activate = 1; });
+              } // (lib.optionalAttrs enableProvider {
                 "${providerName}_provider_section" = {
                   ${addOrder 10 "module"} = "${pkcs11-provider}/lib/ossl-modules/pkcs11.so";
                   ${addOrder 99 "activate"} = 1;
