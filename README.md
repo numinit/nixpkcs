@@ -20,7 +20,7 @@ strong authentication with smartcard-compatible devices.
 
 ## Quickstart
 
-- Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixPKCS.overlays.default ]`
+- Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixpkcs.overlays.default ]`
 - Choose your PKCS#11 module provider. (Right now only the Yubikey is supported, so the only option is `pkgs.yubico-piv-tool`).
 - Wrap your package using `openssl.withPkcs11Module`.
 
