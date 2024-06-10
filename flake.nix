@@ -4,8 +4,6 @@
 
   outputs = { ... }: {
     overlays.default = final: prev: with prev; {
-      pkcs11-provider = callPackage ./pkgs/development/libraries/pkcs11-provider {};
-
       openssl = openssl.overrideAttrs (package: with final; {
         passthru = (package.passthru or {}) // {
           /**
