@@ -113,8 +113,17 @@
         };
       });
 
+      tpm2-pkcs11 = tpm2-pkcs11.overrideAttrs (package: with final; {
+        passthru = (package.passthru or {}) // {
+          pkcs11Module = {
+            path = "${tpm2-pkcs11}/lib/libtpm2_pkcs11.so";
+            options = {};
+          };
+        };
+      });
+
       yubico-piv-tool = yubico-piv-tool.overrideAttrs (package: with final; {
-        passthru = package.passthru // {
+        passthru = (package.passthru or {}) // {
           pkcs11Module = {
             path = "${yubico-piv-tool}/lib/libykcs11.so";
             options = {
