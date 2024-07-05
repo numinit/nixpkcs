@@ -29,10 +29,18 @@ strong authentication with smartcard-compatible devices.
 ## Quickstart
 
 - Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixpkcs.overlays.default ]`
+- Optionally use this flake's NixOS module (`nixpkcs.nixosModules.default`) to make setting up pcsc-lite easier.
 - Choose your PKCS#11 module provider from the list above.
 - Wrap your package using `openssl.withPkcs11Module`.
 
-### `openssl.withPkcs11Module`
+### NixOS module: `nixpkcs.nixosModules.default`
+
+|Option|Default|Description|Example|
+|:-----|:------|:----------|:------|
+|`nixpkcs.enable`|false|Enables PCSC support using pcsc-lite|`nixpkcs.enable = true`|
+|`nixpkcs.pcscUsers`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcscUsers = ["alice" "bob"]`|
+
+### OpenSSL wrapper: `openssl.withPkcs11Module`
 
 - `pkcs11Module`: The PKCS#11 module. Usually `my-package.pkcs11Module`.
 - `package`: The package to wrap. Defaults to `openssl.bin`.
@@ -75,8 +83,8 @@ Leaf certificates will be for clients and servers. A single root certificate (or
     1. Make sure the CCID interface is enabled.
         - Yubikey 4: `ykman config mode OTP+FIDO+CCID`.
         - Yubikey 5: `ykman config usb`
-    2. Set `services.pcscd.enable = true`.
-    3. Optionally create a polkit rule so the correct users can access the Yubikey as a smartcard. See the Appendix. This may be a module option at some point.
+    2. Set `nixpkcs.enable = true`.
+    3. Optionally set `nixpkcs.pcscUsers = ["your username"]` so the correct users can access the Yubikey as a smartcard.
 
 2. Set up your [PIN, PUK (PIN Unlock Key), and Management Key](https://developers.yubico.com/PIV/Introduction/Admin_access.html) with **either** ykman or [yubico-piv-tool](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=yubico-piv-tool).
     - Both are in nixpkgs. ykman may be slightly easier, but yubico-piv-tool provides a few more options. Note the [defaults](https://developers.yubico.com/PIV/Introduction/Admin_access.html) for the PIN, PUK, and Management Key. Keep them in a safe place.
@@ -117,22 +125,3 @@ Leaf certificates will be for clients and servers. A single root certificate (or
     - `openssl ca -provider pkcs11 -keyfile privkey.pem -days $((2 * 365)) -in FILE.csr -out FILE.crt`
     - Note that you will want to use the file starting with `-----BEGIN PKCS#11 PROVIDER URI-----` saved from `openssl storeutl` as your key.
 
-## Appendix
-
-### Polkit rule for pcsc-lite
-
-```nix
-yubikeyPolkitRule = writeTextDir "share/polkit-1/rules.d/10-pcsc.rules" ''
-  polkit.addRule(function (action, subject) {
-    if (
-      (action.id == "org.debian.pcsc-lite.access_pcsc" ||
-        action.id == "org.debian.pcsc-lite.access_card") &&
-      subject.user == "numinit"
-    ) {
-      return polkit.Result.YES;
-    }
-  });
-'';
-
-environment.systemPackages = [ yubikeyPolkitRule ];
-```

@@ -3,6 +3,50 @@
   inputs = {};
 
   outputs = { ... }: {
+    nixosModules.default = { config, pkgs, lib, ... }: with lib; {
+      options = {
+        nixpkcs = {
+          enable = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Set to true to enable PKCS#11 support using pcsc-lite";
+          };
+          pcscUsers = mkOption {
+            description = "Any users that should be allowed to access pcsc-lite.";
+            default = [];
+            example = ["alice"];
+            type = types.listOf types.str;
+          };
+        };
+      };
+
+      config = let
+        cfg = config.nixpkcs;
+      in mkMerge [
+        (mkIf cfg.enable {
+          services.pcscd.enable = true;
+        })
+        (mkIf ((builtins.length cfg.pcscUsers) > 0) {
+          environment.systemPackages = let
+            yubikeyPolkitRule = pkgs.writeTextDir "share/polkit-1/rules.d/10-pcsc.rules" ''
+              var users = ${builtins.toJSON cfg.pcscUsers};
+              polkit.addRule(function (action, subject) {
+                if (action.id == "org.debian.pcsc-lite.access_pcsc" ||
+                    action.id == "org.debian.pcsc-lite.access_card") {
+                  for (var idx = 0; idx < users.length; idx++) {
+                    if (subject.user === users[idx]) {
+                      return polkit.Result.YES;
+                    }
+                  }
+                }
+                return polkit.Result.NO;
+              });
+            '';
+          in lib.singleton yubikeyPolkitRule;
+        })
+      ];
+    };
+
     overlays.default = final: prev: with prev; {
       nebula = let
         src = fetchFromGitHub {
