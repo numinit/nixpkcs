@@ -1,9 +1,29 @@
 {
-  description = "Add support for PKCS#11 smartcards to any Nix package using OpenSSL";
+  description = "Add support for PKCS#11 smartcards to various Nix packages";
   inputs = {};
 
   outputs = { ... }: {
     overlays.default = final: prev: with prev; {
+      nebula = let
+        src = fetchFromGitHub {
+          owner = "numinit";
+          repo = nebula.pname;
+          rev = "refs/tags/pkcs11-v${nebula.version}";
+          hash = "sha256-X0+f/6T+49/vhlchvhmMBFSVaEZXlxET4aEngJGheGM=";
+        };
+        version = "${nebula.version}-pkcs11";
+      in
+      (nebula.override {
+        buildGoModule = args: buildGoModule (args // {
+          inherit src version;
+          vendorHash = "sha256-qv3/7CHcCEDRM3lI+/XIsG/plF+0N5JU5y1kGYfXeGo=";
+        });
+      })
+      .overrideAttrs (package: {
+        inherit src version;
+        tags = [ "pkcs11" ] ++ (package.tags or []);
+      });
+
       openssl = openssl.overrideAttrs (package: with final; {
         passthru = (package.passthru or {}) // {
           /**
