@@ -2,26 +2,34 @@
 
 Store references to PKCS#11 secrets from hardware security tokens in the Nix store, and use them in programs linked with OpenSSL 3.
 
-THIS REPOSITORY IS EXPERIMENTAL AND MAY BREAK AT ANY POINT! Right now, only the Yubikey is supported.
+THIS REPOSITORY IS EXPERIMENTAL AND MAY BREAK AT ANY POINT!
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
 strong authentication with smartcard-compatible devices.
 
-**nixPKCS** provides passthrus on a handful of packages to facilitate the use of PKCS#11 tokens in applications that do not ordinarily support them.
+**nixPKCS** provides passthrus and patches on a handful of packages to facilitate the use of PKCS#11 tokens in applications that do not ordinarily support them.
 
-## Supported packages
+## Added passthrus
 
 |Package|Passthru|Description|
 |:------|:-------|:----------|
 |`openssl`|withPkcs11Module|Wraps any OpenSSL-linked application with a special OPENSSL_CONF enabling the pkcs11-provider OpenSSL provider or the p11-kit OpenSSL engine. Outputs a derivation created with symlinkJoin, `${name}-with-pkcs11`.|
 |`pkcs11-provider`|makePkcs11Pem|Takes a PKCS#11 URL and outputs a `-----BEGIN PKCS#11 PROVIDER URI-----` PEM file containing this PKCS#11 URL encoded as ASN.1.|
-|`yubico-piv-tool`|pkcs11Module|PKCS#11 module containing a path and options for the OpenSSL module.|
+
+## Patched packages
+
+- `nebula`: Added PKCS#11 support to version 1.9.3
+
+## Supported PKCS#11 providers
+
+- `yubico-piv-tool.pkcs11Module`
+- `tpm2-pkcs11.pkcs11Module`
 
 ## Quickstart
 
 - Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixpkcs.overlays.default ]`
-- Choose your PKCS#11 module provider. (Right now only the Yubikey is supported, so the only option is `pkgs.yubico-piv-tool`).
+- Choose your PKCS#11 module provider from the list above.
 - Wrap your package using `openssl.withPkcs11Module`.
 
 ### `openssl.withPkcs11Module`
