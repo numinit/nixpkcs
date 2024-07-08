@@ -1,8 +1,6 @@
 # nixPKCS
 
-Store references to PKCS#11 secrets from hardware security tokens in the Nix store, and use them in programs linked with OpenSSL 3.
-
-THIS REPOSITORY IS EXPERIMENTAL AND MAY BREAK AT ANY POINT!
+_Version 1.0_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -10,14 +8,26 @@ strong authentication with smartcard-compatible devices.
 
 **nixPKCS** provides passthrus and patches on a handful of packages to facilitate the use of PKCS#11 tokens in applications that do not ordinarily support them.
 
-## Added passthrus
+## Features
+
+- Declaratively generate and renew keys in hardware tokens like TPM and Yubikey
+- Automatically create self-signed certificates as a record of key generation
+- Generate and manage PKCS#11 URIs as easily as anything else in your Nix config
+- Inject support for PKCS#11 secrets into many programs linked with OpenSSL 3
+- Patch programs that lack PKCS#11 support with an overlay
+
+## Supported PKCS#11 consumers
+
+These consumers are supported via a wrapper accessible via `withPkcs11Module`.
 
 |Package|Passthru|Description|
 |:------|:-------|:----------|
 |`openssl`|withPkcs11Module|Wraps any OpenSSL-linked application with a special OPENSSL_CONF enabling the pkcs11-provider OpenSSL provider or the p11-kit OpenSSL engine. Outputs a derivation created with symlinkJoin, `${name}-with-pkcs11`.|
-|`pkcs11-provider`|makePkcs11Pem|Takes a PKCS#11 URL and outputs a `-----BEGIN PKCS#11 PROVIDER URI-----` PEM file containing this PKCS#11 URL encoded as ASN.1.|
+|`opensc`|withPkcs11Module|Wraps `pkcs11-tool` with the given `pkcs11Module`.|
 
 ## Patched packages
+
+These packages have PKCS#11 support added via a patch.
 
 - `nebula`: Added PKCS#11 support to version 1.9.3
 
@@ -25,20 +35,142 @@ strong authentication with smartcard-compatible devices.
 
 - `yubico-piv-tool.pkcs11Module`
 - `tpm2-pkcs11.pkcs11Module`
+- `nss_latest.pkcs11Module`
 
-## Quickstart
+## Quickstart: Key Management
 
+- Add this flake's NixOS module to your imports: `imports = [ nixpkcs.nixosModules.default ]`
 - Load this flake as an overlay with something like: `nixpkgs.overlays = [ nixpkcs.overlays.default ]`
-- Optionally use this flake's NixOS module (`nixpkcs.nixosModules.default`) to make setting up pcsc-lite easier.
 - Choose your PKCS#11 module provider from the list above.
-- Wrap your package using `openssl.withPkcs11Module`.
+- Write keypair definitions
+- Keys will automatically be generated!
 
-### NixOS module: `nixpkcs.nixosModules.default`
+### Example
+
+Since a Nix config speaks a thousand words, here's an example one.
+
+Examples for TPM2 are upcoming.
+
+```nix
+nixpkcs = {
+  enable = true;
+  pcsc = {
+    enable = true;
+  };
+  keypairs = {
+    my-key = {
+      enable = true;
+
+      # The PKCS#11 module to use.
+      inherit (yubico-piv-tool) pkcs11Module;
+
+      # The token name. Add `opensc.withPkcs11Module yubico-piv-tool` to your system packages, and run:
+      # `pkcs11-tool --list-slots`
+      token = "YubiKey PIV #123456"; 
+
+      # Note the key mapping: https://developers.yubico.com/yubico-piv-tool/YKCS11/
+      id = 5;
+
+      # Not required for all tokens.
+      # slot = 1;
+
+      # Automatically generated; generally you don't need to change the default.
+      # If you need to access this, you can use `config.nixpkcs.my-key.uri` in your config.
+      # uri = "pkcs11:token=...";
+
+      # Environment variables we should pass in.
+      # extraEnv = { NSS_LIB_PARAMS = "configDir=/etc/softokn"; };
+
+      # Options for the private key.
+      keyOptions = {
+        # EC or RSA.
+        algorithm = "EC";
+
+        # The bits (for RSA) or the curve (for ECDSA).
+        type = "secp256r1";
+
+        # sign, derive, decrypt, wrap
+        usage = ["sign" "derive"];
+
+        # Security Officer PIN. This is the Yubikey's management token.
+        soPinFile = "/etc/yubikey-mgmt.pin";
+
+        # Warning! This will regenerate the key every day and at boot.
+        # force = true;
+
+        # Not needed for the Yubikey.
+        # loginAsUser = true;
+      };
+
+      # Options for the cert.
+      certOptions = {
+        # Can be omitted for a random certificate serial.
+        # serial = "09f91102";
+
+        # The subject.
+        subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=My CA Cert";
+
+        # Extensions to add.
+        # Certificate authority:
+        extensions = [
+            "v3_ca"
+            "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
+        ];
+
+        # Server certificate:
+        # extensions = [
+        #    "basicConstraints=critical,CA:FALSE"
+        #    "keyUsage=critical,digitalSignature,keyEncipherment,keyAgreement"
+        #    "extendedKeyUsage=serverAuth"
+        #    "subjectAltName=DNS:example.com"
+        # ];
+
+        # Client certificate:
+        # extensions = [
+        #    "basicConstraints=critical,CA:FALSE"
+        #    "keyUsage=critical,digitalSignature,keyEncipherment"
+        #    "extendedKeyUsage=clientAuth"
+        # ];
+
+        # Certificate (and key) validity in days.
+        validityDays = 365 * 3;
+
+        # Number of days prior to expiration that this key should be renewed and replaced.
+        # renewalPeriod = 14;
+
+        # File containing the user PIN.
+        pinFile = "/etc/yubikey-user.pin";
+
+        # If provided, will write the certificate here.
+        writeTo = "/home/alice/ca.crt";
+
+        # Called whenever nixpkcs runs. Can be used to restart services. See the module documentation for examples.
+        # rekeyHook = pkgs.writeShellScript "rekey-hook" ''
+        # if [ "$1" == 'new' ]; then
+        #   cat > /home/alice/cert.crt
+        #   chown alice:alice /home/alice/cert.crt
+        # fi
+        # ''
+      };
+    };
+  };
+};
+```
+
+### NixOS module
+
+To automatically manage keys, you will need to use the NixOS module.
 
 |Option|Default|Description|Example|
 |:-----|:------|:----------|:------|
-|`nixpkcs.enable`|false|Enables PCSC support using pcsc-lite|`nixpkcs.enable = true`|
-|`nixpkcs.pcscUsers`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcscUsers = ["alice" "bob"]`|
+|`nixpkcs.enable`|false|Enables automated key management|`nixpkcs.enable = true`|
+|`nixpkcs.pcsc.enable`|false|Enables the PCSC smartcard daemon.|`nixpkcs.pcsc.enable = true`|
+|`nixpkcs.pcsc.users`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcsc.users = ["alice" "bob"]`|
+|`nixpkcs.keypairs.<name>`|N/A|Each keypair.|See above|
+
+## Quickstart: Consuming a PKCS#11 module
+
+Some packages need to be wrapped to support PKCS#11 keys. The `withPkcs11Module` interface lets you do this.
 
 ### OpenSSL wrapper: `openssl.withPkcs11Module`
 
@@ -71,7 +203,7 @@ This wrapped nodejs can be invoked just like normal nodejs, except that reading 
 <Buffer 30 65 02 31 00 f4 59 e7 69 3a a3 1e b4 6b 1b c7 b1 43 83 ba 6a 09 17 87 93 3b ee 5c 23 bf 48 c3 34 1d c9 f2 77 8f 40 a6 af 5d b4 10 fe 4e 5e 12 64 e2 ... 53 more bytes>
 ```
 
-## Generating a certificate authority
+## Configuring a Yubikey
 
 To do many interesting things with private keys, you might need a certificate authority.
 
@@ -96,32 +228,12 @@ Leaf certificates will be for clients and servers. A single root certificate (or
     - Decide what kind of keys you want to generate.
         - I generally go for ECC P-384 or RSA 3072. Since my Yubikey's PIV application doesn't support RSA 3072, I stuck with P-384.
 
-3. Get a version of OpenSSL that supports PKCS#11.
-    - Add `pkgs.openssl.withPkcs11Module { inherit (pkgs.yubico-piv-tool) pkcs11Module; }` to your systemPackages to get an OpenSSL that supports your Yubikey.
+3. Add the keys you want to generate to your NixOS configuration.
 
-4. Create your root key, which will be used to sign a root certificate.
-    - Note that the certificate subject you provide will be used to create a self-signed attestation certificate on the Yubikey, which may not be the final certificate you'd like.
-    - `yubico-piv-tool -v -a generate -k -s 9c -A ECCP384 -H SHA384 -S 'C=US/ST=California/L=Carlsbad/O=aurb.is/OU=Keymaster/CN=aurb.is Root CA' --touch-policy=always --pin-policy=always --attestation`
+4. Use the keys!
 
-5. Find out the PKCS#11 URI of your key, substituting its serial below:
-    - `openssl storeutl -keys -text "pkcs11:serial=123456;object-type=private"`
-    - The output will be something like: `pkcs11:model=YubiKey%20YK4;manufacturer=Yubico%20(www.yubico.com);serial=123456;token=YubiKey%20PIV%20%23123456;id=%02;object=Private%20key%20for%20Digital%20Signature;type=private`
-    - Also save off the private key provider URI PEM, starting with `-----BEGIN PKCS#11 PROVIDER URI----`. This PEM file does not actually contain your key; it is simply a reference to the key.
+## Contributing
 
-6. Sign the root certificate.
-    - `openssl req -provider pkcs11 -key "pkcs11:model=YubiKey%20YK4;manufacturer=Yubico%20(www.yubico.com);serial=123456;token=YubiKey%20PIV%20%23123456;id=%02;object=Private%20key%20for%20Digital%20Signature;type=private" -new -x509 -sha384 -extensions v3_ca -subj '/C=US/ST=California/L=Carlsbad/O=aurb.is/OU=Keymaster/CN=aurb.is Root CA' -days $((365*5)) -addext 'keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign' -outform PEM -out ca.crt`
-    - Enter your Management Key and PIN, and touch the Yubikey to complete the signature
+All contributions to this project are licensed under the terms of the GNU Lesser General Public License, version 3.
 
-7. Import the certificate back onto the Yubikey.
-    - `ykman piv certificates import 9c --verify ca.crt`
-    - This will allow you to retrieve it later if you lose it somehow but still have the Yubikey.
-
-8. Repeat steps 4-7 for any certificates you want to sign. Here is how to make a CSR for a handful of usecases:
-    - Sub CA: `openssl req -provider pkcs11 -key "pkcs11:model=YubiKey%20YK4;manufacturer=Yubico%20(www.yubico.com);serial=123456;token=YubiKey%20PIV%20%23123456;id=%04;object=Private%20key%20for%20Card%20Authentication;type=private" -new -extensions v3_ca -subj '/C=US/ST=California/L=Carlsbad/O=aurb.is/OU=Keymaster/CN=aurb.is Sub CA #1234' -addext 'keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign' -outform PEM -out subCA.csr`
-    - Server: `openssl req -provider pkcs11 -key "pkcs11:model=YubiKey%20YK4;manufacturer=Yubico%20(www.yubico.com);serial=123456;token=YubiKey%20PIV%20%23123456;id=%04;object=Private%20key%20for%20Card%20Authentication;type=private" -new -subj '/C=US/ST=California/L=Carlsbad/O=aurb.is/OU=Keymaster/CN=foo.aurb.is' -addext 'basicConstraints=critical,CA:FALSE' -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyAgreement' -addext 'extendedKeyUsage=serverAuth' -addext 'subjectAltName=DNS:foo.aurb.is' -outform PEM -out server.csr`
-    - Client: `openssl req -provider pkcs11 -key "pkcs11:model=YubiKey%20YK4;manufacturer=Yubico%20(www.yubico.com);serial=123456;token=YubiKey%20PIV%20%23123456;id=%04;object=Private%20key%20for%20Card%20Authentication;type=private" -new -subj '/C=US/ST=California/L=Carlsbad/O=aurb.is/OU=Keymaster/CN=bar.aurb.is' -addext 'basicConstraints=critical,CA:FALSE' -addext 'keyUsage=critical,digitalSignature,keyEncipherment' -addext 'extendedKeyUsage=clientAuth' -outform PEM -out client.csr`
-
-9. And here is how to sign them:
-    - `openssl ca -provider pkcs11 -keyfile privkey.pem -days $((2 * 365)) -in FILE.csr -out FILE.crt`
-    - Note that you will want to use the file starting with `-----BEGIN PKCS#11 PROVIDER URI-----` saved from `openssl storeutl` as your key.
-
+You are free to use this in commercial works; please open a PR if you make an improvement.
