@@ -16,7 +16,7 @@ let
       else if builtins.isString value then
         escapeURL value
       else
-        throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${type}'";
+        throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${builtins.type value}'";
     
     toQuery = mapAttrsToList (name: value: 
       if value == null then null else (escapeURL name) + "=" + (serializePkcs11UriValue value)
@@ -310,7 +310,7 @@ in
     (mkIf (cfg.pcsc.enable && builtins.length cfg.pcsc.users > 0) {
       environment.systemPackages = let
         pcscPolkitRule = pkgs.writeTextDir "share/polkit-1/rules.d/10-pcsc.rules" ''
-          var users = ${builtins.toJSON cfg.pcscUsers};
+          var users = ${builtins.toJSON cfg.pcsc.users};
           polkit.addRule(function (action, subject) {
             if (action.id === "org.debian.pcsc-lite.access_pcsc" ||
                 action.id === "org.debian.pcsc-lite.access_card") {
