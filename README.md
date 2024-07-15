@@ -22,9 +22,9 @@ strong authentication with smartcard-compatible devices.
     - **Fully declarative TPM2 and NSS store initialization!** You now don't need to do anything imperative to initialize a TPM2 or NSS store using nixpkcs.
     - **Nginx and Nebula support**, featuring integration tests with TPM2 and NSS
         - Note that first requests to nginx may cause a dbus timeout until the key is loaded, but subsequent requests are fast
-- 1.0: Initial release
     - New store initialization hook
     - Updated rekeying hook to take the key name in $1
+- 1.0: Initial release
 
 ## Supported PKCS#11 consumers
 
@@ -184,9 +184,9 @@ nixpkcs = {
 
         # Called whenever nixpkcs runs. Can be used to restart services. See the module documentation for examples.
         # rekeyHook = pkgs.writeShellScript "rekey-hook" ''
-        # if [ "$1" == 'new' ]; then
-        #   cat > /home/alice/cert.crt
-        #   chown alice:alice /home/alice/cert.crt
+        # if [ "$2" == 'new' ]; then
+        #   cat > "/home/alice/$1.crt"
+        #   chown alice:alice "/home/alice/$1.crt"
         # fi
         # ''
       };
@@ -222,6 +222,7 @@ Some packages need to be wrapped to support PKCS#11 keys. The `withPkcs11Module`
 - `providerName`: The name of the OpenSSL provider (Default: `pkcs11`)
 - `enableProvider`: True if we should enable the OpenSSL provider. (Default: true)
 - `extraProviderOptions`: Extra options to pass to the provider config. See [the docs](https://github.com/latchset/pkcs11-provider/blob/main/docs/provider-pkcs11.7.md#configuration).
+- `debug`: Enables verbose logging.
 
 ### Example: Wrapping node.js
 
