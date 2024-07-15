@@ -1,11 +1,13 @@
 { lib
 , testers
 , nebula
-, nss_latest
 , openssl
 , pkgs
 , self
 , nixpkgs
+, pkcs11Module
+, extraKeypairOptions
+, extraMachineOptions ? {}
 }:
 
 let
@@ -13,20 +15,20 @@ let
   inherit (import "${nixpkgs}/nixos/tests/ssh-keys.nix" pkgs)
     snakeOilPrivateKey snakeOilPublicKey;
 
-  sshOpts = "-oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oIdentityFile=/root/.ssh/id_snakeoil";
+  soPinFile = "/etc/so.pin";
+  pinFile = "/etc/user.pin";
+  extraEnv = pkcs11Module.mkEnv {};
 
-  nssPin = "/etc/softokn.pin";
-  nssDir = "/etc/softokn";
-  nssLibEnv = {
-    NSS_LIB_PARAMS = "configDir=${nssDir}";
-  };
+  storeInitHook = pkgs.writeShellScript "store-init" ''
+    chown -R nebula-nixpkcs:nebula-nixpkcs "$NIXPKCS_STORE_DIR" || true
+  '';
 
   mkNode = { name, realIp, staticHostMap ? null, extraConfig ? {} }: lib.mkMerge [
     ({ config, ... }: {
       disabledModules = ["services/networking/nebula.nix"];
       imports = [
         self.nixosModules.default
-        ./nixos/modules/services/networking/nebula.nix
+        ../modules/services/networking/nebula.nix
       ];
       networking = {
         hostName = name;
@@ -42,19 +44,16 @@ let
       nixpkcs = {
         enable = true;
         keypairs = {
-          ${name} = {
+          ${name} = lib.recursiveUpdate {
             enable = true;
-            inherit (nss_latest) pkcs11Module;
-            token = "NSS Certificate DB";
+            inherit pkcs11Module extraEnv storeInitHook;
             id = 1;
-            slot = 2;
-            extraEnv = nssLibEnv;
+            debug = true;
             keyOptions = {
               algorithm = "EC";
               type = "secp256r1";
               usage = ["sign" "derive" "decrypt" "wrap"];
-              soPinFile = nssPin;
-              loginAsUser = true;
+              inherit soPinFile;
             };
             certOptions = {
               serial = "09f91102";
@@ -66,45 +65,48 @@ let
               ];
               validityDays = 14;
               renewalPeriod = 7;
-              pinFile = nssPin;
+              inherit pinFile;
               writeTo = "/home/${name}/${name}.crt";
             };
-          };
+          } extraKeypairOptions;
         };
       };
 
       system.activationScripts.initTest.text = ''
-        if [ ! -d /root/.ssh ]; then
-          mkdir -p /root/.ssh
-          chown 700 /root/.ssh
-          cat ${lib.escapeShellArg snakeOilPrivateKey} > /root/.ssh/id_snakeoil
-          chown 600 /root/.ssh/id_snakeoil
+        ${lib.optionalString (config.networking.hostName != "mallory") ''
+          # No SSH private key for Mallory.
+          if [ ! -d /root/.ssh ]; then
+            mkdir -p /root/.ssh
+            chown 700 /root/.ssh
+            cat ${lib.escapeShellArg snakeOilPrivateKey} > /root/.ssh/id_snakeoil
+            chown 600 /root/.ssh/id_snakeoil
+          fi
+        ''}
+        if [ ! -f ${lib.escapeShellArg pinFile} ]; then
+          echo -n 22446688 > ${lib.escapeShellArg pinFile}
+          chmod 0640 ${lib.escapeShellArg pinFile}
+          chown root:nebula-nixpkcs ${lib.escapeShellArg pinFile} || true
         fi
-
-        if [ ! -f ${nssPin} ]; then
-          echo -n 22446688 > ${nssPin}
-          chmod 0640 ${nssPin}
-          chown root:nebula-nixpkcs ${nssPin} || true
+        if [ ! -f ${lib.escapeShellArg soPinFile} ]; then
+          # If we are logging in as the user, place the user PIN in the SO PIN file.
+          ${if config.nixpkcs.keypairs.${name}.keyOptions.loginAsUser then ''
+            ln -s ${lib.escapeShellArg pinFile} ${lib.escapeShellArg soPinFile}
+          '' else ''
+            echo -n 11335577 > ${lib.escapeShellArg soPinFile}
+            chmod 0600 ${lib.escapeShellArg soPinFile}
+          ''}
         fi
-
-        if [ ! -d ${nssDir} ]; then
-          mkdir -p ${nssDir}
-          ${nss_latest.tools}/bin/certutil -N -d ${nssDir} -f ${nssPin} >&2
-          chown -R nebula-nixpkcs:nebula-nixpkcs ${nssDir} || true
-          echo "Generated softokn store for ${name}" >&2
-        fi
-
-        if [ ! -d /etc/nebula ]; then
-          mkdir /etc/nebula
-
-          # Useful in the scripts.
-          echo ${lib.escapeShellArg config.nixpkcs.keypairs.${name}.uri} > /etc/nebula/${name}.key
-          chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
-        fi
-
+        ${lib.optionalString ((config.nixpkcs.keypairs.${name}.uri or null) != null) ''
+          mkdir -p /etc/nebula
+          if [ ! -f /etc/nebula/${name}.key ]; then
+            echo ${lib.escapeShellArg config.nixpkcs.keypairs.${name}.uri} > /etc/nebula/${name}.key
+            chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
+          fi
+        ''}
         ${lib.optionalString ((config.nixpkcs.keypairs.ca.uri or null) != null) ''
-          if [ ! -f /etc/nebula/ca.key ]; then
-            echo ${lib.escapeShellArg config.nixpkcs.keypairs.ca.uri} > /etc/nebula/ca.key
+          mkdir -p /etc/nebula/ca
+          if [ ! -f /etc/nebula/ca/ca.key ]; then
+            echo ${lib.escapeShellArg config.nixpkcs.keypairs.ca.uri} > /etc/nebula/ca/ca.key
             chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
           fi
         ''}
@@ -118,8 +120,8 @@ let
       };
 
       environment = {
-        systemPackages = [ nebula nss_latest.tools openssl ];
-        variables = nssLibEnv;
+        systemPackages = [ nebula openssl ];
+        variables = extraEnv;
       };
     })
     (lib.mkIf (staticHostMap != null)
@@ -143,33 +145,37 @@ let
           };
         };
 
-        # So we pass down NSS lib environment variables to Nebula.
+        # So we pass down PKCS#11 environment variables to Nebula.
         systemd.services."nebula@nixpkcs" = {
-          environment = nssLibEnv;
-          serviceConfig = {
-            LockPersonality = lib.mkForce false;
-          };
+          environment = extraEnv;
         };
       })
     )
     extraConfig
+    extraMachineOptions
   ];
 in testers.runNixOSTest {
-  name = "nixpkcs-test";
+  name = "nixpkcs-test-nebula";
 
   nodes = {
     # First participant.
     alice = mkNode {
       name = "alice";
       realIp = "192.168.1.1";
-      staticHostMap = { "10.32.0.2" = [ "192.168.1.2:4242" ]; };
+      staticHostMap = {
+        "10.32.0.2" = [ "192.168.1.2:4242" ];   # Bob
+        "10.32.0.3" = [ "192.168.1.200:4242" ]; # Mallory
+      };
     };
 
     # Second participant.
     bob = mkNode {
       name = "bob";
       realIp = "192.168.1.2";
-      staticHostMap = { "10.32.0.1" = [ "192.168.1.1:4242" ]; };
+      staticHostMap = {
+        "10.32.0.1" = [ "192.168.1.1:4242" ];   # Alice
+        "10.32.0.3" = [ "192.168.1.200:4242" ]; # Mallory
+      };
     };
 
     # The CA.
@@ -183,42 +189,41 @@ in testers.runNixOSTest {
       name = "mallory";
       realIp = "192.168.1.200";
       staticHostMap = {
-        "10.32.0.1" = [ "192.168.1.1:4242" ];
-        "10.32.0.2" = [ "192.168.1.2:4242" ];
+        "10.32.0.1" = [ "192.168.1.1:4242" ]; # Alice
+        "10.32.0.2" = [ "192.168.1.2:4242" ]; # Bob
       };
       extraConfig = {
         nixpkcs = {
           enable = true;
           keypairs = {
-            ca = {
+            ca = lib.recursiveUpdate {
               enable = true;
-              inherit (nss_latest) pkcs11Module;
-              token = "NSS Certificate DB";
+              inherit pkcs11Module extraEnv storeInitHook;
               id = 2;
-              slot = 2;
-              extraEnv = nssLibEnv;
+              debug = true;
               keyOptions = {
                 algorithm = "EC";
                 type = "secp256r1";
                 usage = ["sign" "derive" "decrypt" "wrap"];
-                soPinFile = nssPin;
-                loginAsUser = true;
+                inherit soPinFile;
               };
               certOptions = {
                 serial = "66666666";
                 subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=Mallory's Super Legit CA";
                 validityDays = 3650;
-                pinFile = nssPin;
+                inherit pinFile;
                 writeTo = "/home/mallory/ca.crt";
               };
-            };
+            } extraKeypairOptions;
           };
         };
       };
     };
   };
 
-  testScript =
+  testScript = let
+    sshOpts = "-oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oIdentityFile=/root/.ssh/id_snakeoil";
+  in
     ''
       # Boot them all up.
       for machine in (alice, bob, charlie):
@@ -243,11 +248,8 @@ in testers.runNixOSTest {
         machine.succeed(
           'scp ${sshOpts} 192.168.1.100:/etc/nebula/charlie.crt /etc/nebula/ca.crt',
           'scp ${sshOpts} 192.168.1.100:/etc/nebula/{0}.crt /etc/nebula/{0}.crt'.format(machine.name),
-          'chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula /etc/softokn'
+          'chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula'
         )
-
-      # No more need for Charlie, he's signed the certs he needed to.
-      charlie.shutdown()
 
       # Enter Mallory
       mallory.start()
@@ -258,10 +260,20 @@ in testers.runNixOSTest {
       # Mallory wants access to Alice and Bob's network but doesn't have the key.
       mallory.succeed(
         'nebula-cert keygen -curve P256 -pkcs11 "$(</etc/nebula/mallory.key)" -out-pub /etc/nebula/mallory.pub',
-        'nebula-cert ca -curve P256 -name ca -ips 10.32.0.0/16 -pkcs11 "$(</etc/nebula/ca.key)" -out-crt /etc/nebula/ca.crt',
-        'nebula-cert sign -ca-crt /etc/nebula/ca.crt -in-pub /etc/nebula/mallory.pub -out-crt /etc/nebula/mallory.crt -name mallory -pkcs11 "$(</etc/nebula/mallory.key)" -ip 10.32.0.3/16',
+        'nebula-cert ca -curve P256 -name ca -ips 10.32.0.0/16 -pkcs11 "$(</etc/nebula/ca/ca.key)" -out-crt /etc/nebula/ca/ca.crt',
+        'nebula-cert sign -ca-crt /etc/nebula/ca/ca.crt -in-pub /etc/nebula/mallory.pub -out-crt /etc/nebula/mallory.crt -name mallory -pkcs11 "$(</etc/nebula/mallory.key)" -ip 10.32.0.3/16'
+      )
+
+      # Mallory should be able to have the CA cert, though.
+      charlie.succeed(
+        'scp ${sshOpts} /etc/nebula/charlie.crt 192.168.1.200:/etc/nebula/ca.crt',
+      )
+      mallory.succeed(
         'chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula'
       )
+
+      # No more need for Charlie, he's signed the certs he needed to.
+      charlie.shutdown()
 
       # Reboot all the remaining hosts.
       for machine in (alice, bob, mallory):

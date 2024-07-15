@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.0_
+_Version 1.1_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -16,6 +16,16 @@ strong authentication with smartcard-compatible devices.
 - Inject support for PKCS#11 secrets into many programs linked with OpenSSL 3
 - Patch programs that lack PKCS#11 support with an overlay
 
+## Changelog
+
+- 1.1: Many new features:
+    - **Fully declarative TPM2 and NSS store initialization!** You now don't need to do anything imperative to initialize a TPM2 or NSS store using nixpkcs.
+    - **Nginx and Nebula support**, featuring integration tests with TPM2 and NSS
+        - Note that first requests to nginx may cause a dbus timeout until the key is loaded, but subsequent requests are fast
+- 1.0: Initial release
+    - New store initialization hook
+    - Updated rekeying hook to take the key name in $1
+
 ## Supported PKCS#11 consumers
 
 These consumers are supported via a wrapper accessible via `withPkcs11Module`.
@@ -30,6 +40,15 @@ These consumers are supported via a wrapper accessible via `withPkcs11Module`.
 These packages have PKCS#11 support added via a patch.
 
 - `nebula`: Added PKCS#11 support to version 1.9.3
+- `tpm2-pkcs11`: Support shared secret (Diffie-Hellman) derivation, and disable FAPI warnings
+
+## Added packages
+
+These packages were added:
+
+- `pkcs11-provider.uri2pem`: Converts a PKCS#11 URI to PEM.
+    - Supports functor syntax: `pkcs11-provider.uri2pem "pkcs11:..."` produces a PEM file in the Nix store
+      that corresponds to a PKCS#11 URI.
 
 ## Supported PKCS#11 providers
 
@@ -47,9 +66,8 @@ These packages have PKCS#11 support added via a patch.
 
 ### Example
 
-Since a Nix config speaks a thousand words, here's an example one.
-
-Examples for TPM2 are upcoming.
+Since a Nix config speaks a thousand words, here are examples for both Yubikey and TPM.
+The Yubikey-specific config parts are commented below.
 
 ```nix
 nixpkcs = {
@@ -62,24 +80,42 @@ nixpkcs = {
       enable = true;
 
       # The PKCS#11 module to use.
-      inherit (yubico-piv-tool) pkcs11Module;
+      inherit (tpm2-pkcs11) pkcs11Module;
+      # inherit (yubico-piv-tool) pkcs11Module;
 
-      # The token name. Add `opensc.withPkcs11Module yubico-piv-tool` to your system packages, and run:
-      # `pkcs11-tool --list-slots`
-      token = "YubiKey PIV #123456"; 
+      # Script that runs after initializing the store for the first time,
+      # for tokens that require a state directory (TPM2, for example).
+      # storeInitHook = pkgs.writeShellScript "store-init-hook" '''
+      #   chown -R alice:users "$NIXPKCS_STORE_DIR"
+      # ''
 
-      # Note the key mapping: https://developers.yubico.com/yubico-piv-tool/YKCS11/
-      id = 5;
+      # The token name. For TPM, this can be whatever you want, as long as it's consistent.
+      # The default is `nixpkcs`; `pkcs11-tool --list-slots` will tell you for other tokens.
+      # token = "nixpkcs"; 
+      # token = "YubiKey PIV #123456"; 
 
-      # Not required for all tokens.
-      # slot = 1;
+      # The key ID.
+      # For yubikey, note the key mapping:
+      # https://developers.yubico.com/yubico-piv-tool/YKCS11/
+      id = 1;
+
+      # Not required for all tokens, but is for NSS.
+      # slot = 2;
 
       # Automatically generated; generally you don't need to change the default.
       # If you need to access this, you can use `config.nixpkcs.my-key.uri` in your config.
       # uri = "pkcs11:token=...";
 
-      # Environment variables we should pass in.
-      # extraEnv = { NSS_LIB_PARAMS = "configDir=/etc/softokn"; };
+      # In case you want the fully RFC compliant version with no extra parameters.
+      # p11kit requires this, but you shouldn't unless you really need it.
+      # rfc7512Uri = "pkcs11:token=..."
+
+      # Environment variables we should pass to the script.
+      # Defaults to `pkcs11Module.mkEnv {}`. If overridden, make sure to include those.
+      # extraEnv = { MY_ENV_VARIABLE = 42; };
+
+      # Enables very verbose debug output.
+      # debug = true;
 
       # Options for the private key.
       keyOptions = {
@@ -89,17 +125,18 @@ nixpkcs = {
         # The bits (for RSA) or the curve (for ECDSA).
         type = "secp256r1";
 
-        # sign, derive, decrypt, wrap
+        # Options: sign, derive, decrypt, wrap
         usage = ["sign" "derive"];
 
-        # Security Officer PIN. This is the Yubikey's management token.
-        soPinFile = "/etc/yubikey-mgmt.pin";
+        # Security Officer PIN. For the yubikey, this is the management token.
+        # At least 8 digits, maybe more. For the Yubikey, it's a 40 char hex string.
+        soPinFile = "/etc/mgmt.pin";
 
         # Warning! This will regenerate the key every day and at boot.
         # force = true;
 
-        # Not needed for the Yubikey.
-        # loginAsUser = true;
+        # Needed for the Yubikey, but not needed for TPM and NSS.
+        # loginAsUser = false;
       };
 
       # Options for the cert.
@@ -135,11 +172,12 @@ nixpkcs = {
         # Certificate (and key) validity in days.
         validityDays = 365 * 3;
 
-        # Number of days prior to expiration that this key should be renewed and replaced.
+        # Number of days prior to expiration this key should be renewed and replaced.
+        # Set to 0 to disable auto-renewal.
         # renewalPeriod = 14;
 
-        # File containing the user PIN.
-        pinFile = "/etc/yubikey-user.pin";
+        # File containing the user PIN. Usually 8 digits but can be more.
+        pinFile = "/etc/user.pin";
 
         # If provided, will write the certificate here.
         writeTo = "/home/alice/ca.crt";
@@ -164,8 +202,9 @@ To automatically manage keys, you will need to use the NixOS module.
 |Option|Default|Description|Example|
 |:-----|:------|:----------|:------|
 |`nixpkcs.enable`|false|Enables automated key management|`nixpkcs.enable = true`|
-|`nixpkcs.pcsc.enable`|false|Enables the PCSC smartcard daemon.|`nixpkcs.pcsc.enable = true`|
+|`nixpkcs.pcsc.enable`|false|Enables the PCSC smartcard daemon. You will need this for Yubikeys.|`nixpkcs.pcsc.enable = true`|
 |`nixpkcs.pcsc.users`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcsc.users = ["alice" "bob"]`|
+|`nixpkcs.tpm2.enable`|false|Enables TPM2 and tpm2-abrmd (the [TPM Access Broker and Resource Daemon](https://github.com/tpm2-software/tpm2-abrmd)). You will obviously need this for TPM2.|`true`|
 |`nixpkcs.keypairs.<name>`|N/A|Each keypair.|See above|
 
 ## Quickstart: Consuming a PKCS#11 module

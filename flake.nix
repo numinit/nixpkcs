@@ -27,32 +27,68 @@
         };
 
         checks = {
-          moduleTest = pkgs.callPackage ./test.nix {
+          nssNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
             inherit self nixpkgs;
+            inherit (pkgs.nss_latest) pkcs11Module;
+            extraKeypairOptions = {
+              token = "NSS Certificate DB";
+              slot = 2;
+            };
+          };
+          tpmNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
+            inherit self nixpkgs;
+            inherit (pkgs.tpm2-pkcs11) pkcs11Module;
+            extraKeypairOptions = {
+              token = "nixpkcs";
+            };
+            extraMachineOptions = { config, ... }: {
+              virtualisation.tpm.enable = true;
+              nixpkcs.tpm2.enable = true;
+              users.users."nebula-nixpkcs" = lib.mkIf (config.services.nebula.networks.nixpkcs.enable or false) {
+                extraGroups = [ "tss" ];
+              };
+            };
+          };
+          nginxTest = pkgs.callPackage ./nixos/tests/nginx.nix {
+            inherit self nixpkgs;
+            inherit (pkgs.tpm2-pkcs11) pkcs11Module;
+            extraKeypairOptions = {
+              token = "nixpkcs";
+            };
+            extraMachineOptions = { config, ... }: {
+              virtualisation.tpm.enable = true;
+              nixpkcs.tpm2.enable = true;
+              users.users.nginx = {
+                extraGroups = [ "tss" ];
+              };
+            };
           };
         };
 
         packages = {
-          inherit (pkgs) nebula openssl opensc nss_latest yubico-piv-tool tpm2-pkcs11;
+          inherit (pkgs) nebula openssl opensc pkcs11-provider nss_latest yubico-piv-tool tpm2-pkcs11;
         };
 
-        overlayAttrs = with pkgs; {
-          mkNixpkcs = pkcs11Provider: writeShellApplication {
-            name = "nixpkcs.sh";
-            runtimeInputs = [
-              jq
-              (final.opensc.withPkcs11Module { inherit (pkcs11Provider) pkcs11Module; })
-              (final.openssl.withPkcs11Module { inherit (pkcs11Provider) pkcs11Module; })
+        overlayAttrs = with pkgs; let
+          # Creates all possible PKCS#11 consumers for a package.
+          mkPkcs11Consumers = package: let
+            pkcs11Consumers = [
+              "nixpkcs"
+              "opensc"
+              "openssl"
             ];
-            text = builtins.readFile ./nixpkcs.sh;
-          };
+          in builtins.listToAttrs (
+            map (name: lib.nameValuePair name (final.${name}.withPkcs11Module package)) pkcs11Consumers
+          );
+        in {
+          ### PATCHES ###
 
           nebula = let
             src = fetchFromGitHub {
               owner = "numinit";
               repo = nebula.pname;
               rev = "refs/tags/pkcs11-v${nebula.version}";
-              hash = "sha256-/WWu4ZhXwk/xsWkF9ko10v1SHclF7bHLWZkcbWxXfy8=";
+              hash = "sha256-TKAa6gkga8n7DkM0Gl+EW2OjJt+csTd6O5eVGhN9YOk=";
             };
             version = "${nebula.version}-pkcs11";
           in
@@ -66,6 +102,22 @@
             inherit src version;
             tags = [ "pkcs11" ] ++ (package.tags or []);
           });
+
+          ### WRAPPERS ###
+
+          nixpkcs = {
+            name = "nixpkcs";
+            withPkcs11Module = { pkcs11Module, ... }: writeShellApplication {
+              name = "nixpkcs.sh";
+              runtimeInputs = [
+                util-linux
+                jq
+                (final.opensc.withPkcs11Module { inherit pkcs11Module; })
+                (final.openssl.withPkcs11Module { inherit pkcs11Module; })
+              ];
+              text = builtins.readFile ./nixpkcs.sh;
+            };
+          };
 
           openssl = openssl.overrideAttrs (finalPackage: previousPackage: with final; {
             passthru = (previousPackage.passthru or {}) // {
@@ -82,6 +134,7 @@
                 providerName ? "pkcs11",    # the name for the new-style provider, if enabled
                 enableProvider ? true,      # true to enable the provider
                 extraProviderOptions ? {},  # extra options to pass to the provider.
+                debug ? false,
                 ...
               }: let
                 # Adds an ordering prefix to a string.
@@ -100,7 +153,7 @@
                     str;
 
                 # The PKCS#11 module options.
-                moduleOptions = pkcs11Module.options or {};
+                moduleOptions = if pkcs11Module == null then {} else pkcs11Module.openSslOptions or {};
 
                 # The PKCS#11 engine options.
                 engineOptions = {
@@ -109,9 +162,10 @@
 
                 # The provider options. Defaults to loading provider URLs from PEM files.
                 providerOptions = {
-                  pkcs11-module-path = "${pkcs11Module.path}";
                   pkcs11-module-encode-provider-uri-to-pem = true;
                   pkcs11-module-load-behavior = "early";
+                } // lib.optionalAttrs (pkcs11Module != null) {
+                  pkcs11-module-path = "${pkcs11Module.path}";
                 } // moduleOptions // extraProviderOptions;
 
                 # The OpenSSL config.
@@ -120,11 +174,12 @@
                   originalMkKeyValue = lib.generators.mkKeyValueDefault {} " = ";
                   mkKeyValue = k: v: let
                     stripped = stripOrder k;
+                    normalizedValue = if v == null then "EMPTY" else v;
                   in
                     if stripped == ".include" then
                       ".include ${v}"
                     else
-                      originalMkKeyValue stripped v;
+                      originalMkKeyValue stripped normalizedValue;
                 in
                 writeText "${cnfPrefix}.openssl.cnf" (lib.generators.toINIWithGlobalSection {
                   inherit mkKeyValue;
@@ -146,8 +201,11 @@
                     "${engineName}_engine_section" = {
                       ${addOrder 10 "engine_id"} = engineName;
                       ${addOrder 11 "dynamic_path"} = "${libp11}/lib/engines/libpkcs11.so";
-                      ${addOrder 12 "MODULE_PATH"} = pkcs11Module.path;
                       ${addOrder 99 "init"} = 1;
+                    } // lib.optionalAttrs debug {
+                      ${addOrder 12 "VERBOSE"} = null;
+                    } // lib.optionalAttrs (pkcs11Module != null) {
+                      ${addOrder 13 "MODULE_PATH"} = pkcs11Module.path;
                     } // (addOrderToAttrs 20 engineOptions);
                   }) // {
                     provider_section = {
@@ -163,16 +221,23 @@
                     } // (addOrderToAttrs 20 providerOptions);
                   });
                 });
-              in symlinkJoin {
-                name = "${finalPackage.pname}-with-pkcs11";
-                paths = [ finalPackage.finalPackage ];
-                buildInputs = [ makeWrapper ];
                 postBuild = ''
                   find -L $out/bin -type f | while read program; do
                     wrapProgram "$program" --set OPENSSL_CONF ${config}
                   done
                 '';
-              };
+                symlinkJoinWith = package: symlinkJoin {
+                  name = "${package.pname}-with-pkcs11";
+                  paths = [ package ];
+                  buildInputs = [ makeWrapper ];
+                  inherit postBuild;
+                  passthru = package // {
+                    # If the resulting package is overridden, use the symlinkJoinWith wrapper.
+                    # (nginx needs this, as an example)
+                    override = attrs: symlinkJoinWith (package.override attrs);
+                  };
+                };
+              in symlinkJoinWith package;
             };
           });
 
@@ -194,39 +259,131 @@
             };
           });
 
-          # nss is broken for this use case but latest is not, we're only maintaining one of these things.
+          pkcs11-provider = pkcs11-provider.overrideAttrs (finalPackage: previousPackage: with final; {
+            passthru = (previousPackage.passthru or {}) // {
+              uri2pem = stdenv.mkDerivation {
+                pname = "pkcs11-provider-uri2pem";
+                inherit (previousPackage) version src;
+
+                buildInputs = [
+                  (python3.withPackages (pkgs: lib.singleton pkgs.asn1crypto))
+                ];
+
+                dontBuild = true;
+
+                installPhase = ''
+                  mkdir -p $out/bin
+                  echo '#!/usr/bin/env python3' > $out/bin/uri2pem
+                  cat tools/uri2pem.py | grep -v '^#!' >> $out/bin/uri2pem
+                  chmod +x $out/bin/uri2pem
+                '';
+
+                passthru.__functor = self: uri: pkgs.runCommand "pkcs11-uri2pem" { inherit uri; } ''
+                  ${self}/bin/uri2pem --out "$out" "$uri"
+                '';
+              };
+            };
+          });
+
+          ### MODULES ###
+
+          # nss is broken for this usecase but nss_latest is not.
+          # We're only maintaining one of these things.
           nss_latest = nss_latest.overrideAttrs (finalPackage: previousPackage: {
             passthru = (previousPackage.passthru or {}) // {
               pkcs11Module = {
                 path = "${finalPackage.finalPackage}/lib/libsoftokn3.so";
-                options = {};
+                openSslOptions = {};
+                mkEnv = {
+                  storeDir ? "/etc/pki/nssdb",
+                  extraEnv ? {}
+                }: {
+                  NSS_LIB_PARAMS = "configDir=${storeDir}";
+                  NIXPKCS_STORE_DIR = storeDir;
+                } // extraEnv;
+                storeInit = pkgs.writeShellScript "nss-pkcs11-init" ''
+                  local pin="$cert_options_user_pin"
+                  if [ -z "$pin" ]; then
+                    pin="$key_options_so_pin"
+                  fi
+                  if [ -z "$pin" ]; then
+                    error "User or Security Officer PIN must be set"
+                    return 1
+                  fi
+                  echo "$pin" | log_exec -- ${finalPackage.finalPackage.tools}/bin/certutil -N \
+                    -d "$NIXPKCS_STORE_DIR" -f /dev/stdin
+                '';
               };
-              nixpkcs = final.mkNixpkcs finalPackage.finalPackage;
-            };
+            } // (mkPkcs11Consumers finalPackage.finalPackage);
           });
 
-          tpm2-pkcs11 = tpm2-pkcs11.overrideAttrs (finalPackage: previousPackage: {
+          tpm2-pkcs11 = (tpm2-pkcs11.override {
+            fapiSupport = false;
+          }).overrideAttrs (finalPackage: previousPackage: {
+            src = fetchFromGitHub {
+              owner = "tpm2-software";
+              repo = finalPackage.pname;
+              # Needed to support key agreement with TPM2
+              rev = "eb3897be3bd6d837b2d4819507c1f787624510e2";
+              hash = "sha256-7ftit6g3FT5qwlJhgbYHBvXoDNJeyF9cIScEIgCPlcA=";
+            };
+
+            # Silence spammy warnings
+            configureFlags = (previousPackage.configureFlags or []) ++ [ "--with-fapi=no" ];
+
             passthru = (previousPackage.passthru or {}) // {
               pkcs11Module = {
                 path = "${finalPackage.finalPackage}/lib/libtpm2_pkcs11.so";
-                options = {};
+                openSslOptions = {
+                  pkcs11-module-quirks = "no-operation-state";
+                };
+                mkEnv = {
+                  storeDir ? "/etc/tpm2-pkcs11",
+                  logLevel ? 0, # error
+                  disableFapiLogging ? true,
+                  extraEnv ? {}
+                }: {
+                  TPM2_PKCS11_STORE = storeDir;
+                  TPM2_PKCS11_BACKEND = "esysdb";
+                  TPM2_PKCS11_LOG_LEVEL = builtins.toString logLevel;
+                  NIXPKCS_STORE_DIR = storeDir;
+                } // lib.optionalAttrs disableFapiLogging {
+                  TSS2_LOG = "fapi+NONE";
+                } // extraEnv;
+                storeInit = pkgs.writeShellScript "tpm2-pkcs11-init" ''
+                  if [ -z "$key_options_so_pin" ] || [ -z "$cert_options_user_pin" ]; then
+                    error "Security Officer and User PIN must be set to initialize the TPM"
+                    return 1
+                  fi
+                  log_exec -- \
+                    ${finalPackage.finalPackage.bin}/bin/tpm2_ptool init --path="$NIXPKCS_STORE_DIR"
+                  log_exec "$key_options_so_pin" "$cert_options_user_pin" -- \
+                    ${finalPackage.finalPackage.bin}/bin/tpm2_ptool addtoken --pid=1 \
+                      --sopin="$key_options_so_pin" \
+                      --userpin="$cert_options_user_pin" \
+                      --label="$token" --path="$NIXPKCS_STORE_DIR"
+                '';
               };
-              nixpkcs = final.mkNixpkcs finalPackage.finalPackage;
-            };
+            } // (mkPkcs11Consumers finalPackage.finalPackage);
           });
 
           yubico-piv-tool = yubico-piv-tool.overrideAttrs (finalPackage: previousPackage: {
             passthru = (previousPackage.passthru or {}) // {
               pkcs11Module = {
                 path = "${finalPackage.finalPackage}/lib/libykcs11.so";
-                options = {
+                openSslOptions = {
                   pkcs11-module-login-behavior = "never";
-                  pkcs11-module-quirks = "no-deinit";
+                  pkcs11-module-quirks = "no-deinit no-operation-state";
                   pkcs11-module-cache-pins = "cache";
                 };
+                mkEnv = {
+                  debug ? 0,
+                  extraEnv ? {}
+                }: {
+                  YKCS11_DBG = builtins.toString debug;
+                } // extraEnv;
               };
-              nixpkcs = final.mkNixpkcs finalPackage.finalPackage;
-            };
+            } // (mkPkcs11Consumers finalPackage.finalPackage);
           });
         };
       };

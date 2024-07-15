@@ -3,10 +3,9 @@
 set -euo pipefail
 shopt -s extglob
 
-script_name="$(basename -- "${BASH_SOURCE[0]:-$0}")"
+script_path="${BASH_SOURCE[0]:-$0}"
+script_name="$(basename -- "$script_path")"
 label='unknown key'
-
-echo -n "$script_name" > "/proc/$$/comm" 2>/dev/null || true
 
 debug=0
 if [[ -v NIXPKCS_DEBUG ]] && [ -n "$NIXPKCS_DEBUG" ] && [ "$NIXPKCS_DEBUG" != '0' ]; then
@@ -55,12 +54,57 @@ if [[ ! -v NIXPKCS_KEY_SPEC ]] || [ -z "$NIXPKCS_KEY_SPEC" ]; then
   exit 1
 fi
 
-# Sanitizes the secret in $1, setting '_SECRET'.
-# Deletes all non-alphanumerics, _, and -.
+# Acquire a lock if we need to.
+if [[ -v NIXPKCS_LOCK_FILE ]] && [ -n "$NIXPKCS_LOCK_FILE" ] && command -v flock &>/dev/null; then
+  lockfile="$NIXPKCS_LOCK_FILE"
+  unset NIXPKCS_LOCK_FILE
+  debug "Acquiring lock on $lockfile"
+  exec flock -F "$lockfile" "$script_path" "$@"
+  exit 255
+fi
+
+# Deletes every non-alphanumeric, _, or -.
 _SECRET=''
+_SECRET_CHARS='0-9A-Za-z_-'
 sanitize_secret() {
   local secret="$1"
-  _SECRET="${secret//[^0-9A-Za-z_-]/}"
+  _SECRET="${secret//[^$_SECRET_CHARS]/}"
+}
+
+# Validates that the secret in $1 contains only alphanumerics, _, or -.
+# Sets '_SECRET' if it's valid, or sets it to '' if not.
+validate_secret() {
+  local secret="$1"
+  if [[ "$secret" =~ ^[$_SECRET_CHARS]+$ ]]; then
+    sanitize_secret "$secret"
+  else
+    _SECRET=''
+  fi
+}
+
+# Reads the file at $1 containing a secret.
+# Sets '_SECRET' if it's valid and contains a secret, or '' and returns 1 if not.
+read_secret_file() {
+  local secret_file="$1"
+  if [ -n "$secret_file" ]; then
+    if [ -f "$secret_file" ]; then
+      validate_secret "$(<"$secret_file")"
+      if [ -n "$_SECRET" ]; then
+        return 0
+      else
+        _SECRET=''
+        error "Secret file '$secret_file' didn't appear to contain a valid secret"
+        return 1
+      fi
+    else
+      _SECRET=''
+      error "Secret file '$secret_file' was specified and didn't exist"
+      return 1
+    fi
+  else
+    _SECRET=''
+    return 0
+  fi
 }
 
 # Executes a command, logging it and redacting secrets.
@@ -96,6 +140,14 @@ log_exec() (
     fi
   done
 
+  if [ "${#args[@]}" -lt 1 ]; then
+    error "No arguments provided!"
+    return 1
+  fi
+
+  # Clean up argv[0] for logging.
+  log_args[0]="$(basename -- "${log_args[0]}")"
+
   info "<exec> $(printf '%q ' "${log_args[@]+"${log_args[@]}"}")"
   exec ${args[@]+"${args[@]}"}
 )
@@ -113,9 +165,9 @@ p11tool() {
     anonymous)
       ;;
     user)
-      if [ -n "$key_options_pin" ]; then
-        args+=(--login --login-type user --pin "$key_options_pin")
-        secrets+=("$key_options_pin")
+      if [ -n "$cert_options_user_pin" ]; then
+        args+=(--login --login-type user --pin "$cert_options_user_pin")
+        secrets+=("$cert_options_user_pin")
       fi
       ;;
     so)
@@ -140,19 +192,16 @@ p11tool() {
 
 # Runs OpenSSL, stripping secrets out of the log.
 ossl() {
-  log_exec "$key_options_pin" "$key_options_so_pin" -- openssl "$@"
+  log_exec "$cert_options_user_pin" "$key_options_so_pin" -- openssl "$@"
 }
 
 # Reads a certificate from the yubikey.
 _CERT=''
 read_cert() {
-  info "Available slots"
-  p11tool anonymous --list-slots
-
   info "Reading certificate"
   local cert
   set +e
-  cert="$(p11tool anonymous --read-object --type cert | openssl x509 -inform der)"
+  cert="$(p11tool user --read-object --type cert | openssl x509 -inform der)"
   result=$?
   set -e
 
@@ -233,6 +282,67 @@ is_expiring() {
   fi
 }
 
+# Calls a store init hook. Checks that we are unable to write to it first.
+# $1: The name of the variable to use for the call.
+# $2: --source to source it, --exec to exec it.
+call_store_init_hook() (
+  if [ $# -ne 2 ]; then
+    error "Usage: [--source|--exec] VARIABLE_NAME"
+    return 1
+  fi
+
+  local source=0
+  case "$1" in
+    --source)
+      source=1
+      ;;
+    --exec)
+      source=0
+      ;;
+    *)
+      error "--source or --exec must be provided"
+      return 1
+      ;;
+  esac
+
+  local name="$2"
+  if [[ -v "$name" ]] && [ -f "${!name}" ] && [ -x "${!name}" ]; then
+    if [ -w "${!name}" ] || touch "${!name}" &>/dev/null; then
+      error "$name (${!name}) was executable and writeable, aborting!"
+      return 1
+    else
+      mkdir -p "$NIXPKCS_STORE_DIR"
+
+      if [ $source -eq 0 ]; then
+        exec "${!name}"
+      else
+        # shellcheck disable=SC1090
+        . "${!name}"
+      fi
+
+      return 0
+    fi
+  fi
+)
+
+# Initializes the store if we need to.
+maybe_init_store() {
+  if [[ -v NIXPKCS_STORE_DIR ]] && [ -n "$NIXPKCS_STORE_DIR" ]; then
+    info "Using store directory: $NIXPKCS_STORE_DIR"
+    if [ ! -d "$NIXPKCS_STORE_DIR" ]; then
+      info "Initializing store."
+
+      # Run the one defined in the module.
+      call_store_init_hook --source NIXPKCS_STORE_INIT
+
+      # And any defined by the user.
+      call_store_init_hook --exec NIXPKCS_STORE_INIT_HOOK
+
+      info "Store initialized successfully."
+    fi
+  fi
+}
+
 # Runs the rekey hook if it exists with the specified arguments.
 _REKEY_STATUS=0
 run_rekey_hook() {
@@ -252,12 +362,12 @@ info "Starting."
 declare token id uri \
   key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_login_as_user \
   cert_options_digest cert_options_serial cert_options_subject \
-  cert_options_validity_days cert_options_renewal_period cert_options_pin_file cert_options_rekey_hook
+  cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 
 vars=(token id uri
   key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_login_as_user
   cert_options_digest cert_options_serial cert_options_subject
-  cert_options_validity_days cert_options_renewal_period cert_options_pin_file cert_options_rekey_hook
+  cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 )
 
 {
@@ -312,34 +422,16 @@ vars=(token id uri
 
   # Validate the digest against those allowed by openssl.
   cert_options_digest="$(echo "$cert_options_digest" | tr '[:upper:]' '[:lower:]')"
-  if ! { openssl list -1 --digest-commands | grep -q "$cert_options_digest"; }; then
+  if ! { openssl list -1 --digest-commands | grep -q "^${cert_options_digest}$"; }; then
     error "Invalid digest: $cert_options_digest. Use 'openssl list --digest-commands' for a list."
     exit 1
   fi
  
   # Read the pin file(s).
-  pins=()
-  for pin_file in "$key_options_so_pin_file" "$cert_options_pin_file"; do
-    if [ -n "$pin_file" ]; then
-      if [ -f "$pin_file" ]; then
-        sanitize_secret "$(<"$pin_file")"
-        if [ -n "$_SECRET" ]; then
-          pins+=("$_SECRET")
-        else
-          error "PIN file '$pin_file' didn't appear to contain a PIN"
-          exit 1
-        fi
-      else
-        error "PIN file '$pin_file' was specified and didn't exist"
-        exit 1
-      fi
-    else
-      pins+=('')
-    fi
-  done
-
-  key_options_so_pin="${pins[0]}"
-  key_options_pin="${pins[1]}"
+  read_secret_file "$key_options_so_pin_file"
+  key_options_so_pin="$_SECRET"
+  read_secret_file "$cert_options_user_pin_file"
+  cert_options_user_pin="$_SECRET"
 } < <(
   # Ensure that these are ordered the same as above.
   echo "$NIXPKCS_KEY_SPEC" | \
@@ -379,12 +471,15 @@ declare -a cert_options_extensions
     jq -r '(.certOptions?.extensions? // []).[]'
 )
 
+# Initialize the store.
+maybe_init_store
+
 # Read the certificate and run the rekey hook with the old cert.
 rekey_status=0
 if [ "$key_options_force" != 'true' ]; then
   read_cert
   if [ -n "$_CERT" ]; then
-    echo "$_CERT" | run_rekey_hook old
+    echo "$_CERT" | run_rekey_hook "$label" old
 
     if [ $_REKEY_STATUS -ne 0 ]; then
       warn "Rekey hook returned $_REKEY_STATUS; skipping rekey."
@@ -400,7 +495,7 @@ if [ $rekey_status -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_o
     warn "Generated a cert that's about to expire!"
   fi
 
-  echo "$_CERT" | run_rekey_hook new
+  echo "$_CERT" | run_rekey_hook "$label" new
 
   if [ $_REKEY_STATUS -ne 0 ]; then
     warn "Rekey hook returned $_REKEY_STATUS."

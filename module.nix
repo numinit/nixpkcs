@@ -52,11 +52,29 @@ in
         };
       };
 
+      tpm2 = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = "Set to true to enable TPM2 support";
+        };
+      };
+
       keypairs = mkOption {
         description = "Keypairs to let nixpkcs manage on this host.";
         default = {};
         type = types.attrsOf (types.submodule ({ name, config, ... }: {
-          options = {
+          options = let
+            authority = {
+              inherit (config) token id;
+              object = name;
+              slot-id = if config.slot == null then null else toString config.slot;
+              type = "private";
+            };
+            query = lib.optionalAttrs (config.certOptions.pinFile != null) {
+              pin-source = "file:${config.certOptions.pinFile}";
+            };
+          in {
             enable = mkOption {
               type = types.bool;
               default = true;
@@ -71,8 +89,27 @@ in
               '';
             };
 
+            storeInitHook = mkOption {
+              type = types.nullOr types.path;
+              default = pkgs.writeShellScript "default-store-init-hook" ":";
+              description = ''
+                Run the given script after the store is initialized and before nixpkcs runs.
+
+                This script has NIXPKCS_STORE_DIR exported to it.
+
+                This script also always has access to a wrapped OpenSSL and pkcs11-tool on its PATH, in addition to jq.
+                Returning nonzero from this script aborts nixpkcs.
+              '';
+              example = lib.literalExpression ''
+                pkgs.writeShellScript "store-init-hook" '''
+                  chown -R alice:users "$NIXPKCS_STORE_DIR"
+                '''
+              '';
+            };
+
             token = mkOption {
               type = types.str;
+              default = "nixpkcs";
               description = "The token label.";
               example = "YubiKey PIV #123456";
             };
@@ -93,15 +130,8 @@ in
             uri = mkOption {
               type = types.str;
               default = mkPkcs11Uri {
-                authority = {
-                  inherit (config) token id;
-                  object = name;
-                  slot-id = if config.slot == null then null else toString config.slot;
-                  type = "private";
-                };
-                query = lib.optionalAttrs (config.certOptions.pinFile != null) {
-                  pin-source = "file:${config.certOptions.pinFile}";
-                } // {
+                inherit authority;
+                query = query // {
                   module-path = config.pkcs11Module.path;
                 };
               };
@@ -109,13 +139,29 @@ in
               example = "pkcs11:token=YubiKey%20PIV%20%23123456;id=%05;type=private";
             };
 
+            rfc7512Uri = mkOption {
+              type = types.str;
+              default = mkPkcs11Uri {
+                inherit authority query;
+              };
+              description = "Overrides the PKCS#11 URI for applications that strictly follow the RFC.";
+              example = "pkcs11:token=YubiKey%20PIV%20%23123456;id=%05;type=private";
+            };
+
             extraEnv = mkOption {
               type = types.attrsOf types.str;
-              default = {};
+              default = config.pkcs11Module.mkEnv {};
               description = "Extra environment variables to pass to this key's systemd unit";
               example = lib.literalExpression ''
                 { NSS_LIB_PARAMS = "configDir=/etc/softokn"; }
               '';
+            };
+
+            debug = mkOption {
+              type = types.bool;
+              default = false;
+              description = "Set to true to output verbose debugging messages for this key.";
+              example = true;
             };
 
             keyOptions = {
@@ -158,8 +204,8 @@ in
 
               loginAsUser = mkOption {
                 type = types.bool;
-                default = false;
-                description = "Some tokens don't have the concept of a 'security officer'. If set, this will log in as the 'user' instead.";
+                default = true;
+                description = "Some tokens use the user login for key generation, and the SO login for personalization. If set, this will log in as the 'user' instead.";
                 example = true;
               };
             };
@@ -239,7 +285,8 @@ in
                   NIXPKCS_KEY_SPEC is passed in as an environment variable, containing the NixOS module options.
                   You may use this to restart services when keys change.
 
-                  $1 is set to 'old' or 'new' depending on whether the certificate is the old or new one.
+                  - $1 is set to the name of the key.
+                  - $2 is set to 'old' or 'new' depending on whether the certificate is the old or new one.
                   You may use this to do something with the certificate when it's checked or when it's renewed.
 
                   This script always has access to a wrapped OpenSSL and pkcs11-tool on its PATH, in addition to jq.
@@ -247,7 +294,7 @@ in
                 '';
                 example = lib.literalExpression ''
                   pkgs.writeShellScript "rekey-hook" '''
-                    if [ "$1" == 'new' ]; then
+                    if [ "$2" == 'new' ]; then
                       cat > /home/alice/cert.crt
                       chown alice:alice /home/alice/cert.crt
                     fi
@@ -267,21 +314,6 @@ in
   in mkMerge [
     (mkIf cfg.enable {
       systemd.services = lib.mapAttrs' (name: value:
-        let
-          nixpkcs = pkgs.mkNixpkcs value;
-
-          # Come up with a lockfile key. We want to avoid concurrently running two instances
-          # of the script that use the same PKCS#11 module since there will frequently be
-          # connections to hardware involved. Better safe than sorry with hardware and
-          # cryptographic keying, and this involves both. So just use the Nix store path
-          # of the PKCS#11 token library we are using.
-          pkcs11ModuleKey = builtins.substring 0 8
-            (builtins.hashString "sha256" (builtins.replaceStrings ["/"] ["-"] value.pkcs11Module.path));
-          lockfileKey = "nixpkcs-${pkcs11ModuleKey}.lock";
-
-          # Escapes systemd %-specifiers in the given value.
-          escapeSpecifiers = value: builtins.replaceStrings ["%"] ["%%"] (builtins.toString value);
-        in
         lib.nameValuePair "nixpkcs@${name}" {
           description = "nixpkcs service for key '${name}'";
           startAt = "*-*-* 00:00:00";
@@ -289,17 +321,35 @@ in
           after = [ "basic.target" "multi-user.target" ];
           wantedBy = [ "multi-user.target" ];
           environment = let
-            filteredValue = {
-              # We don't want to pass the whole PKCS#11 module here; this should be enough.
-              inherit (value) token id uri keyOptions certOptions;
-            };
+            # Escapes systemd %-specifiers in the given value.
+            escapeSpecifiers = value: builtins.replaceStrings ["%"] ["%%"] (builtins.toString value);
           in lib.mapAttrs (_: envValue: (escapeSpecifiers envValue)) (value.extraEnv // {
-            NIXPKCS_KEY_SPEC = (builtins.toJSON filteredValue);
+            NIXPKCS_KEY_SPEC = let
+              filteredValue = {
+                # We don't want to pass the whole PKCS#11 module here; this should be enough.
+                inherit (value) token id uri keyOptions certOptions;
+              };
+            in builtins.toJSON filteredValue;
+            NIXPKCS_LOCK_FILE = let
+              # Come up with a lockfile key. We want to avoid concurrently running two instances
+              # of the script that use the same PKCS#11 module since there will frequently be
+              # connections to hardware involved. Better safe than sorry with hardware and
+              # cryptographic keying, and this involves both. So just use the Nix store path
+              # of the PKCS#11 token library we are using.
+              pkcs11ModuleKey = builtins.substring 0 8
+                (builtins.hashString "sha256" (builtins.replaceStrings ["/"] ["-"] value.pkcs11Module.path));
+              lockfileKey = "nixpkcs-${pkcs11ModuleKey}.lock";
+            in "/var/lock/${lockfileKey}";
+          } // lib.optionalAttrs ((value.pkcs11Module.storeInit or null) != null) {
+            NIXPKCS_STORE_INIT = value.pkcs11Module.storeInit;
+          } // lib.optionalAttrs (value.storeInitHook != null) {
+            NIXPKCS_STORE_INIT_HOOK = value.storeInitHook;
+          } // lib.optionalAttrs value.debug {
+            NIXPKCS_DEBUG = 1;
           });
           serviceConfig = {
             Type = "oneshot";
-            # Use -F so we don't create an unnecessary subprocess.
-            ExecStart = "@${pkgs.util-linux}/bin/flock ${nixpkcs.name} -F /var/lock/${lockfileKey} ${nixpkcs}/bin/nixpkcs.sh ${name}";
+            ExecStart = "@${pkgs.nixpkcs.withPkcs11Module value}/bin/nixpkcs.sh nixpkcs ${name}";
           };
         }
       ) enabledKeypairs;
@@ -324,6 +374,12 @@ in
           });
         '';
       in lib.singleton pcscPolkitRule;
+    })
+    (mkIf cfg.tpm2.enable {
+      security.tpm2 = {
+        enable = true;
+        abrmd.enable = true;
+      };
     })
   ];
 }
