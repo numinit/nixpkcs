@@ -337,7 +337,7 @@ in
               # cryptographic keying, and this involves both. So just use the Nix store path
               # of the PKCS#11 token library we are using.
               pkcs11ModuleKey = builtins.substring 0 8
-                (builtins.hashString "sha256" (builtins.replaceStrings ["/"] ["-"] value.pkcs11Module.path));
+                (builtins.hashString "sha256" value.pkcs11Module.path);
               lockfileKey = "nixpkcs-${pkcs11ModuleKey}.lock";
             in "/var/lock/${lockfileKey}";
           } // lib.optionalAttrs ((value.pkcs11Module.storeInit or null) != null) {
