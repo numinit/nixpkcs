@@ -255,12 +255,9 @@
                     } // (addOrderToAttrs 20 providerOptions);
                   });
                 });
-                providerDebugLevel =
-                  if enableProvider then
-                    if builtins.isString debug then debug
-                    else if builtins.isInt debug then "file:/dev/stderr,level:${builtins.toString debug}"
-                    else if debug == true then "file:/dev/stderr,level=2"
-                    else null
+                providerDebugLevel = let realDebug = if debug == true then 2 else debug; in
+                  if builtins.isString realDebug then realDebug
+                  else if builtins.isInt realDebug then "file:/dev/stderr,level:${builtins.toString realDebug}"
                   else null;
               in
               symlinkJoinWith {
@@ -273,7 +270,7 @@
             };
           });
 
-          opensc = opensc.overrideAttrs (finalPackage: previousPackage: with final; {
+          opensc = opensc.overrideAttrs (finalPackage: previousPackage: {
             passthru = (previousPackage.passthru or {}) // {
               withPkcs11Module = {
                 pkcs11Module,   # the module
@@ -410,6 +407,8 @@
                   debug ? 0,
                   extraEnv ? {}
                 }: {
+                  # Yubikeys don't support key labels.
+                  NIXPKCS_NO_LABELS = "1";
                   YKCS11_DBG = builtins.toString debug;
                 } // extraEnv;
               };

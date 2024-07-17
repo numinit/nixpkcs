@@ -63,6 +63,12 @@ if [[ -v NIXPKCS_LOCK_FILE ]] && [ -n "$NIXPKCS_LOCK_FILE" ] && command -v flock
   exit 255
 fi
 
+use_label=1
+if [[ -v NIXPKCS_NO_LABELS ]] && [ -n "$NIXPKCS_NO_LABELS" ] && [ "$NIXPKCS_NO_LABELS" != '0' ]; then
+  debug "Skipping labels because we were asked to."
+  use_label=0
+fi
+
 # Deletes every non-alphanumeric, _, or -.
 _SECRET=''
 _SECRET_CHARS='0-9A-Za-z_-'
@@ -159,7 +165,12 @@ p11tool() {
   local op_mode="$1"
   shift
 
-  local args=(--token-label "$token" --id "$id" --label "$label")
+  local args=(--token-label "$token" --id "$id")
+
+  if [ $use_label -ne 0 ]; then
+    args+=(--label "$label")
+  fi
+
   local secrets=()
   case "$op_mode" in
     anonymous)

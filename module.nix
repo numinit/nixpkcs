@@ -225,6 +225,20 @@ in
                 example = "09f91102";
               };
 
+              validityDays = mkOption {
+                type = types.int;
+                default = 365;
+                description = "The number of days that this cert should be valid for.";
+                example = 365 * 3;
+              };
+
+              renewalPeriod = mkOption {
+                type = types.int;
+                default = 14;
+                description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
+                example = 14;
+              };
+
               subject = mkOption {
                 type = types.str;
                 default = "O=NixOS/CN=nixpkcs Certificate";
@@ -243,20 +257,6 @@ in
                 example = lib.literalExpression ''
                   ["v3_ca" "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"]
                 '';
-              };
-
-              validityDays = mkOption {
-                type = types.int;
-                default = 365;
-                description = "The number of days that this cert should be valid for.";
-                example = 365 * 3;
-              };
-
-              renewalPeriod = mkOption {
-                type = types.int;
-                default = 14;
-                description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
-                example = 14;
               };
 
               pinFile = mkOption {
