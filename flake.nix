@@ -13,7 +13,7 @@
 
       flake = {
         nixosModules.default = import ./module.nix self;
-        version = "1.1.0";
+        version = "1.1.1";
       };
 
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -71,7 +71,6 @@
         };
 
         overlayAttrs = with pkgs; let
-          # Creates all possible PKCS#11 consumers for a package.
           mkPkcs11Consumers = package: let
             pkcs11Consumers = [
               "nixpkcs"
@@ -135,7 +134,8 @@
                 providerName ? "pkcs11",    # the name for the new-style provider, if enabled
                 enableProvider ? true,      # true to enable the provider
                 extraProviderOptions ? {},  # extra options to pass to the provider.
-                debug ? false,
+                passthru ? {},              # passthru on the symlinkJoin
+                debug ? false,              # true to enable debugging
                 ...
               }: let
                 # Adds an ordering prefix to a string.
@@ -203,7 +203,7 @@
                       ${addOrder 10 "engine_id"} = engineName;
                       ${addOrder 11 "dynamic_path"} = "${libp11}/lib/engines/libpkcs11.so";
                       ${addOrder 99 "init"} = 1;
-                    } // lib.optionalAttrs debug {
+                    } // lib.optionalAttrs (debug != null && debug != false) {
                       ${addOrder 12 "VERBOSE"} = null;
                     } // lib.optionalAttrs (pkcs11Module != null) {
                       ${addOrder 13 "MODULE_PATH"} = pkcs11Module.path;
@@ -222,21 +222,36 @@
                     } // (addOrderToAttrs 20 providerOptions);
                   });
                 });
-                postBuild = ''
-                  find -L $out/bin -type f | while read program; do
-                    wrapProgram "$program" --set OPENSSL_CONF ${config}
-                  done
-                '';
                 symlinkJoinWith = package: symlinkJoin {
                   name = "${package.pname}-with-pkcs11";
                   paths = [ package ];
                   buildInputs = [ makeWrapper ];
-                  inherit postBuild;
-                  passthru = package // {
+                  postBuild = let
+                    providerDebugLevel =
+                      if enableProvider then
+                        if builtins.isString debug then debug
+                        else if builtins.isInt debug then "file:/dev/stderr,level:${builtins.toString debug}"
+                        else if debug == true then "file:/dev/stderr,level=2"
+                        else null
+                      else null;
+                  in ''
+                    args=(--set OPENSSL_CONF ${config})
+                    ${lib.optionalString enableProvider ''
+                      args+=(--set PKCS11_PROVIDER_MODULE ${lib.escapeShellArg pkcs11Module.path})
+                      ${lib.optionalString (providerDebugLevel != null) ''
+                        args+=(--set PKCS11_PROVIDER_DEBUG ${lib.escapeShellArg providerDebugLevel})
+                      ''}
+                    ''}
+                    find -L $out/bin -type f | while read program; do
+                      wrapProgram "$program" "''${args[@]}"
+                    done
+                  '';
+                  passthru = {
                     # If the resulting package is overridden, use the symlinkJoinWith wrapper.
                     # (nginx needs this, as an example)
+                    inherit (package) pname version;
                     override = attrs: symlinkJoinWith (package.override attrs);
-                  };
+                  } // passthru;
                 };
               in symlinkJoinWith package;
             };
@@ -246,6 +261,7 @@
             passthru = (previousPackage.passthru or {}) // {
               withPkcs11Module = {
                 pkcs11Module,
+                passthru ? {},
                 ...
               }: symlinkJoin {
                 name = "${finalPackage.pname}-with-pkcs11";
@@ -256,6 +272,7 @@
                     wrapProgram "$program" --add-flags "--module ${pkcs11Module.path}"
                   done
                 '';
+                inherit passthru;
               };
             };
           });

@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.1_
+_Version 1.1.1_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -18,7 +18,10 @@ strong authentication with smartcard-compatible devices.
 
 ## Changelog
 
-- 1.1: Many new features:
+- 1.1.1
+    - Support `<provider>.openssl` and `<provider>.opensc` passthrus
+    - Support pkcs11-provider's debug environment variables with the OpenSSL wrapper
+- 1.1.0: Many new features.
     - **Fully declarative TPM2 and NSS store initialization!** You now don't need to do anything imperative to initialize a TPM2 or NSS store using nixpkcs.
     - **Nginx and Nebula support**, featuring integration tests with TPM2 and NSS
         - Note that first requests to nginx may cause a dbus timeout until the key is loaded, but subsequent requests are fast
@@ -51,6 +54,8 @@ These packages were added:
       that corresponds to a PKCS#11 URI.
 
 ## Supported PKCS#11 providers
+
+As of version 1.1.1, you can use the passthru syntax to automatically get an PKCS#11 consumer that uses a particular PKCS#11 module (for instance, `yubico-piv-tool.openssl` or `tpm2-pkcs11.opensc`).
 
 - `yubico-piv-tool.pkcs11Module`
 - `tpm2-pkcs11.pkcs11Module`

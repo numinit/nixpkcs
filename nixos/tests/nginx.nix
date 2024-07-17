@@ -5,6 +5,7 @@
 , nginx
 , pkgs
 , self
+, nixpkgs
 , pkcs11Module
 , extraKeypairOptions
 , extraMachineOptions ? {}
@@ -80,7 +81,9 @@ let
           inherit pkcs11Module;
           package = nginx;
           confName = "nginx";
-          debug = true;
+          passthru = {
+            inherit (nginx) modules;
+          };
         };
         recommendedOptimisation = true;
         recommendedTlsSettings = true;
