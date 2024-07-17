@@ -71,6 +71,7 @@
         };
 
         overlayAttrs = with pkgs; let
+          # Creates an attrset mapping package names to that package with the given PKCS#11 module.
           mkPkcs11Consumers = package: let
             pkcs11Consumers = [
               "nixpkcs"
@@ -80,6 +81,36 @@
           in builtins.listToAttrs (
             map (name: lib.nameValuePair name (final.${name}.withPkcs11Module package)) pkcs11Consumers
           );
+
+          # Wraps a package with a symlink join that respects overrides.
+          symlinkJoinWith = {
+            package,
+            pkcs11Module,
+            moduleEnv ? {},
+            passthru ? {},
+            extraWrapProgramArgs ? [],
+            findDirectory ? "bin",
+            extraFindArgs ? []
+          }@args: symlinkJoin {
+            name = "${package.pname}-with-pkcs11";
+            paths = [ package ];
+            buildInputs = [ makeWrapper ];
+            postBuild = ''
+              args=(${lib.escapeShellArgs (lib.flatten (lib.mapAttrsToList (name: value: ["--set-default" name value]) (pkcs11Module.mkEnv moduleEnv)))})
+              args+=(${lib.escapeShellArgs extraWrapProgramArgs})
+              find -L $out/${lib.escapeShellArg findDirectory} -type f ${lib.escapeShellArgs extraFindArgs} | while read program; do
+                wrapProgram "$program" "''${args[@]}"
+              done
+            '';
+            passthru = {
+              # If the resulting package is overridden, use the symlinkJoinWith wrapper.
+              # (nginx needs this, as an example)
+              inherit (package) pname version;
+              override = attrs: symlinkJoinWith (args // {
+                package = package.override attrs;
+              });
+            } // passthru;
+          };
         in {
           ### PATCHES ###
 
@@ -134,10 +165,12 @@
                 providerName ? "pkcs11",    # the name for the new-style provider, if enabled
                 enableProvider ? true,      # true to enable the provider
                 extraProviderOptions ? {},  # extra options to pass to the provider.
+                moduleEnv ? {},             # environment variables to set
                 passthru ? {},              # passthru on the symlinkJoin
                 debug ? false,              # true to enable debugging
                 ...
-              }: let
+              }:
+              let
                 # Adds an ordering prefix to a string.
                 addOrder = order: str: "${builtins.toString order}-${str}";
 
@@ -222,57 +255,36 @@
                     } // (addOrderToAttrs 20 providerOptions);
                   });
                 });
-                symlinkJoinWith = package: symlinkJoin {
-                  name = "${package.pname}-with-pkcs11";
-                  paths = [ package ];
-                  buildInputs = [ makeWrapper ];
-                  postBuild = let
-                    providerDebugLevel =
-                      if enableProvider then
-                        if builtins.isString debug then debug
-                        else if builtins.isInt debug then "file:/dev/stderr,level:${builtins.toString debug}"
-                        else if debug == true then "file:/dev/stderr,level=2"
-                        else null
-                      else null;
-                  in ''
-                    args=(--set OPENSSL_CONF ${config})
-                    ${lib.optionalString enableProvider ''
-                      args+=(--set PKCS11_PROVIDER_MODULE ${lib.escapeShellArg pkcs11Module.path})
-                      ${lib.optionalString (providerDebugLevel != null) ''
-                        args+=(--set PKCS11_PROVIDER_DEBUG ${lib.escapeShellArg providerDebugLevel})
-                      ''}
-                    ''}
-                    find -L $out/bin -type f | while read program; do
-                      wrapProgram "$program" "''${args[@]}"
-                    done
-                  '';
-                  passthru = {
-                    # If the resulting package is overridden, use the symlinkJoinWith wrapper.
-                    # (nginx needs this, as an example)
-                    inherit (package) pname version;
-                    override = attrs: symlinkJoinWith (package.override attrs);
-                  } // passthru;
-                };
-              in symlinkJoinWith package;
+                providerDebugLevel =
+                  if enableProvider then
+                    if builtins.isString debug then debug
+                    else if builtins.isInt debug then "file:/dev/stderr,level:${builtins.toString debug}"
+                    else if debug == true then "file:/dev/stderr,level=2"
+                    else null
+                  else null;
+              in
+              symlinkJoinWith {
+                inherit package pkcs11Module moduleEnv passthru;
+                extraWrapProgramArgs =
+                  [ "--set" "OPENSSL_CONF" config ]
+                  ++ lib.optionals enableProvider [ "--set" "PKCS11_PROVIDER_MODULE" pkcs11Module.path ]
+                  ++ lib.optionals (enableProvider && providerDebugLevel != null) [ "--set-default" "PKCS11_PROVIDER_DEBUG" providerDebugLevel ];
+              };
             };
           });
 
           opensc = opensc.overrideAttrs (finalPackage: previousPackage: with final; {
             passthru = (previousPackage.passthru or {}) // {
               withPkcs11Module = {
-                pkcs11Module,
-                passthru ? {},
+                pkcs11Module,   # the module
+                moduleEnv ? {}, # environment variables to set; see <module>.mkEnv
+                passthru ? {},  # passthrus to add to the symlinkJoin
                 ...
-              }: symlinkJoin {
-                name = "${finalPackage.pname}-with-pkcs11";
-                paths = [ finalPackage.finalPackage ];
-                buildInputs = [ makeWrapper ];
-                postBuild = ''
-                  find -L $out/bin -type f -name pkcs11-tool | while read program; do
-                    wrapProgram "$program" --add-flags "--module ${pkcs11Module.path}"
-                  done
-                '';
-                inherit passthru;
+              }: symlinkJoinWith {
+                package = finalPackage.finalPackage;
+                inherit pkcs11Module moduleEnv passthru;
+                extraWrapProgramArgs = [ "--add-flags" "--module ${pkcs11Module.path}" ];
+                extraFindArgs = [ "-name" "pkcs11-tool" ];
               };
             };
           });
