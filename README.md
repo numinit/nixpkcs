@@ -18,6 +18,8 @@ strong authentication with smartcard-compatible devices.
 
 ## Changelog
 
+- 1.1.3
+    - Support skipping key labels for devices like the Yubikey that get confused if you try to use them.
 - 1.1.2
     - Automatically inject default provider-specific environment variables into wrappers so `system.environment` doesn't have to change to use tools
 - 1.1.1
@@ -148,8 +150,18 @@ nixpkcs = {
 
       # Options for the cert.
       certOptions = {
+        # The certificate message digest. `openssl list -digest-commands` for the list. Case insensitive.
+        # digest = "SHA256";
+
         # Can be omitted for a random certificate serial.
         # serial = "09f91102";
+
+        # Certificate (and key) validity in days.
+        validityDays = 365 * 3;
+
+        # Number of days prior to expiration this key should be renewed and replaced.
+        # Set to 0 to disable auto-renewal.
+        # renewalPeriod = 14;
 
         # The subject.
         subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=My CA Cert";
@@ -175,13 +187,6 @@ nixpkcs = {
         #    "keyUsage=critical,digitalSignature,keyEncipherment"
         #    "extendedKeyUsage=clientAuth"
         # ];
-
-        # Certificate (and key) validity in days.
-        validityDays = 365 * 3;
-
-        # Number of days prior to expiration this key should be renewed and replaced.
-        # Set to 0 to disable auto-renewal.
-        # renewalPeriod = 14;
 
         # File containing the user PIN. Usually 8 digits but can be more.
         pinFile = "/etc/user.pin";
