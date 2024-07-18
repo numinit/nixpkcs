@@ -403,12 +403,11 @@
                   pkcs11-module-quirks = "no-deinit no-operation-state";
                   pkcs11-module-cache-pins = "cache";
                 };
+                noLabels = true;
                 mkEnv = {
                   debug ? 0,
                   extraEnv ? {}
                 }: {
-                  # Yubikeys don't support key labels.
-                  NIXPKCS_NO_LABELS = "1";
                   YKCS11_DBG = builtins.toString debug;
                 } // extraEnv;
               };
