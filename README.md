@@ -16,9 +16,13 @@ strong authentication with smartcard-compatible devices.
 - Inject support for PKCS#11 secrets into many programs linked with OpenSSL 3
 - Patch programs that lack PKCS#11 support with an overlay
 
-## Changelog
+## Flake URLs
 
 We try to stick to semver. Branches are formatted as `vX.Y` and tags are formatted as `vX.Y.Z`.
+
+Use `github:numinit/nixpkcs` or `github:numinit/nixpkcs/v1.1` for the 1.1 branch, or `github:numinit/nixpkcs/master` if you like living on the edge.
+
+## Changelog
 
 - 1.1.4
     - Omit the label from the PKCS#11 URI if the module doesn't support them. This fixes consuming the URI from applications
