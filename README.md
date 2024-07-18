@@ -20,7 +20,7 @@ strong authentication with smartcard-compatible devices.
 
 We try to stick to semver. Branches are formatted as `vX.Y` and tags are formatted as `vX.Y.Z`.
 
-Use `github:numinit/nixpkcs` or `github:numinit/nixpkcs/v1.1` for the 1.1 branch, or `github:numinit/nixpkcs/master` if you like living on the edge.
+Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/nixpkcs` if you like living on the edge.
 
 ## Changelog
 
