@@ -67,9 +67,11 @@ in
           options = let
             authority = {
               inherit (config) token id;
-              object = name;
               slot-id = if config.slot == null then null else toString config.slot;
               type = "private";
+            } // lib.optionalAttrs (!(config.pkcs11Module.noLabels or false)) {
+              # Only supply this for tokens that support labels.
+              object = name;
             };
             query = lib.optionalAttrs (config.certOptions.pinFile != null) {
               pin-source = "file:${config.certOptions.pinFile}";
@@ -344,6 +346,9 @@ in
             NIXPKCS_STORE_INIT = value.pkcs11Module.storeInit;
           } // lib.optionalAttrs (value.storeInitHook != null) {
             NIXPKCS_STORE_INIT_HOOK = value.storeInitHook;
+          } // lib.optionalAttrs (value.pkcs11Module.noLabels or false) {
+            # For, e.g. Yubikeys, which don't support them.
+            NIXPKCS_NO_LABELS = 1;
           } // lib.optionalAttrs value.debug {
             NIXPKCS_DEBUG = 1;
           });
