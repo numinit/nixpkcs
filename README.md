@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.1.3_
+_Version 1.1.4_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -18,6 +18,11 @@ strong authentication with smartcard-compatible devices.
 
 ## Changelog
 
+- 1.1.4
+    - Omit the label from the PKCS#11 URI if the module doesn't support them. This fixes consuming the URI from applications
+      like OpenSSL (not just OpenSC) when using the `yubico-piv-tool` module.
+    - Remove unnecessary path munging for file lock keys left over from before the lock keys were hashes.
+    - Create `nixpkcs-1.1` branch.
 - 1.1.3
     - Support skipping key labels for devices like the Yubikey that get confused if you try to use them.
 - 1.1.2
