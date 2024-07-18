@@ -18,11 +18,13 @@ strong authentication with smartcard-compatible devices.
 
 ## Changelog
 
+We try to stick to semver. Branches are formatted as `vX.Y` and tags are formatted as `vX.Y.Z`.
+
 - 1.1.4
     - Omit the label from the PKCS#11 URI if the module doesn't support them. This fixes consuming the URI from applications
       like OpenSSL (not just OpenSC) when using the `yubico-piv-tool` module.
     - Remove unnecessary path munging for file lock keys left over from before the lock keys were hashes.
-    - Create `nixpkcs-1.1` branch.
+    - Create `v1.1` branch.
 - 1.1.3
     - Support skipping key labels for devices like the Yubikey that get confused if you try to use them.
 - 1.1.2
