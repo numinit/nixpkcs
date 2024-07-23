@@ -24,6 +24,12 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.1.5
+    - Add `nixpkcs.environment.enable` to populate system environment variables with those necessary to use keypairs. The default is true.
+    - Add `nixpkcs.uri.enable` to add a `nixpkcs-uri` tool to `environment.systemPackages` to convert a keypair name into a URI. The default is true.
+    - Strip out newlines in PIN files when the store is initialized, and make sure they're root:root/0600 by default.
+    - Correct permissions on PKCS#11 TPM store directory and PIN files during store initialization to allow RW access from root:tss.
+    - Fix issues with PCSC polkit rule that would accidentally block unintended actions unrelated to pcsc-lite. (#2)
 - 1.1.4
     - Omit the label from the PKCS#11 URI if the module doesn't support them. This fixes consuming the URI from applications
       like OpenSSL (not just OpenSC) when using the `yubico-piv-tool` module.
@@ -64,6 +70,8 @@ These packages have PKCS#11 support added via a patch.
 
 These packages were added:
 
+- `nixpkcs-uri`: Prints a PKCS#11 URI for a given key.
+    - Pass a key name as $1, and it prints the PKCS#11 URI on stdout.
 - `pkcs11-provider.uri2pem`: Converts a PKCS#11 URI to PEM.
     - Supports functor syntax: `pkcs11-provider.uri2pem "pkcs11:..."` produces a PEM file in the Nix store
       that corresponds to a PKCS#11 URI.
@@ -228,6 +236,9 @@ To automatically manage keys, you will need to use the NixOS module.
 |`nixpkcs.pcsc.enable`|false|Enables the PCSC smartcard daemon. You will need this for Yubikeys.|`nixpkcs.pcsc.enable = true`|
 |`nixpkcs.pcsc.users`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcsc.users = ["alice" "bob"]`|
 |`nixpkcs.tpm2.enable`|false|Enables TPM2 and tpm2-abrmd (the [TPM Access Broker and Resource Daemon](https://github.com/tpm2-software/tpm2-abrmd)). You will obviously need this for TPM2.|`true`|
+|`nixpkcs.environment.enable`|true|Adds all keypair extraEnv to the system environment. Useful if a program you would like to use isn't wrapped with nixpkcs.|true|
+|`nixpkcs.uri.enable`|true|Enables the `nixpkcs-uri` command, converting keypair names to PKCS#11 URIs.|true|
+|`nixpkcs.uri.package`|nixpkcs-uri|The package to use for the `nixpkcs-uri` command.||
 |`nixpkcs.keypairs.<name>`|N/A|Each keypair.|See above|
 
 ## Quickstart: Consuming a PKCS#11 module

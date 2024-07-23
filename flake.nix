@@ -13,7 +13,7 @@
 
       flake = {
         nixosModules.default = import ./module.nix self;
-        version = "1.1.4";
+        version = "1.1.5";
       };
 
       systems = [ "x86_64-linux" "aarch64-linux" ];
