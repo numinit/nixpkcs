@@ -110,7 +110,6 @@ let
 
       environment = {
         systemPackages = [ openssl curl ];
-        variables = extraEnv;
       };
 
       systemd.services."nginx" = {
