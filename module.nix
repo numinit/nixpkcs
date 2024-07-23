@@ -374,8 +374,8 @@ in
                   return polkit.Result.YES;
                 }
               }
+              return polkit.Result.NO;
             }
-            return polkit.Result.NO;
           });
         '';
       in lib.singleton pcscPolkitRule;
