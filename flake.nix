@@ -34,6 +34,18 @@
             extraKeypairOptions = {
               token = "NSS Certificate DB";
               slot = 2;
+              storeInitHook = pkgs.writeShellScript "nss-test-store-init" ''
+                chown -R nebula-nixpkcs:nebula-nixpkcs "$NIXPKCS_STORE_DIR" || true
+
+                key_options_so_pin_file="$(echo "$NIXPKCS_KEY_SPEC" | jq -r '.keyOptions?.soPinFile? // ""')"
+                if [ -n "$key_options_so_pin_file" ] && [ -f "$key_options_so_pin_file" ]; then
+                  chown nebula-nixpkcs:nebula-nixpkcs "$key_options_so_pin_file" || true
+                fi
+                cert_options_user_pin_file="$(echo "$NIXPKCS_KEY_SPEC" | jq -r '.certOptions?.pinFile? // ""')"
+                if [ -n "$cert_options_user_pin_file" ] && [ -f "$cert_options_user_pin_file" ]; then
+                  chown nebula-nixpkcs:nebula-nixpkcs "$cert_options_user_pin_file" || true
+                fi
+              '';
             };
           };
           tpmNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
@@ -337,7 +349,7 @@
                     error "User or Security Officer PIN must be set"
                     return 1
                   fi
-                  echo "$pin" | log_exec -- ${finalPackage.finalPackage.tools}/bin/certutil -N \
+                  echo -n "$pin" | log_exec -- ${finalPackage.finalPackage.tools}/bin/certutil -N \
                     -d "$NIXPKCS_STORE_DIR" -f /dev/stdin
                 '';
               };
@@ -382,6 +394,8 @@
                     error "Security Officer and User PIN must be set to initialize the TPM"
                     return 1
                   fi
+
+                  # Initialize the TPM.
                   log_exec -- \
                     ${finalPackage.finalPackage.bin}/bin/tpm2_ptool init --path="$NIXPKCS_STORE_DIR"
                   log_exec "$key_options_so_pin" "$cert_options_user_pin" -- \
@@ -389,7 +403,24 @@
                       --sopin="$key_options_so_pin" \
                       --userpin="$cert_options_user_pin" \
                       --label="$token" --path="$NIXPKCS_STORE_DIR"
+
+                  # Ensure permissions on the store directory.
+                  owner="$(id -u)"
+                  log_exec -- chown -R "$owner:tss" "$NIXPKCS_STORE_DIR"
+                  log_exec -- chmod 0770 "$NIXPKCS_STORE_DIR"
+                  log_exec -- find "$NIXPKCS_STORE_DIR" -type f -exec chmod 0660 {} \;
+
+                  # Ensure permissions on the SO PIN and user PIN.
+                  if [ -n "$key_options_so_pin_file" ] && [ -f "$key_options_so_pin_file" ]; then
+                    log_exec -- chown "$owner:tss" "$key_options_so_pin_file"
+                    log_exec -- chmod 0640 "$key_options_so_pin_file"
+                  fi
+                  if [ -n "$cert_options_user_pin_file" ] && [ -f "$cert_options_user_pin_file" ]; then
+                    log_exec -- chown "$owner:tss" "$cert_options_user_pin_file"
+                    log_exec -- chmod 0640 "$cert_options_user_pin_file"
+                  fi
                 '';
+
               };
             } // (mkPkcs11Consumers finalPackage.finalPackage);
           });
