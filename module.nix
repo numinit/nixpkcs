@@ -28,6 +28,9 @@ let
     if queryValue == "" then "" else "?" + queryValue;
   in
   "pkcs11:" + authorityString + queryString;
+
+  # The nixpkcs config.
+  cfg = config.nixpkcs;
 in
 {
   options = {
@@ -57,6 +60,42 @@ in
           type = types.bool;
           default = false;
           description = "Set to true to enable TPM2 support";
+        };
+      };
+
+      environment = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Set to true to populate the system environment with nixpkcs keypairs' extraEnv.";
+        };
+      };
+
+      uri = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Set to true to enable the `nixpkcs-uri` command converting keypair names into URIs.";
+        };
+
+        package = mkOption {
+          type = types.package;
+          default = pkgs.writeShellApplication {
+            name = "nixpkcs-uri";
+            text = ''
+              set -euo pipefail
+              if [ $# -ne 1 ]; then
+                echo "Usage: $0 <key name>" >&2
+                exit 1
+              fi
+
+              case "$1" in
+                ${lib.concatStringsSep "\n  " (lib.mapAttrsToList (name: value: "${lib.escapeShellArg name}) echo ${lib.escapeShellArg value.uri} ;;") cfg.keypairs)}
+                *) echo "unknown key '$1'" >&2 && exit 1 ;;
+              esac
+            '';
+          };
+          description = "Override the nixpkcs-uri package, used to convert key names into PKCS#11 URIs.";
         };
       };
 
@@ -311,10 +350,18 @@ in
   };
 
   config = let
-    cfg = config.nixpkcs;
     enabledKeypairs = if cfg.enable then lib.filterAttrs (_: value: value.enable) cfg.keypairs else [];
   in mkMerge [
     (mkIf cfg.enable {
+      environment = {
+        # Place the nixpkgs-uri package on PATH.
+        systemPackages = mkIf cfg.uri.enable (lib.singleton cfg.uri.package);
+
+        # Automatically set environment variables for the specified keypairs.
+        variables = mkIf cfg.environment.enable
+          (lib.foldl (s: x: s // x) {} (lib.mapAttrsToList (name: value: value.extraEnv) enabledKeypairs));
+      };
+
       systemd.services = lib.mapAttrs' (name: value:
         lib.nameValuePair "nixpkcs@${name}" {
           description = "nixpkcs service for key '${name}'";

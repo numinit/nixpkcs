@@ -19,10 +19,6 @@ let
   pinFile = "/etc/user.pin";
   extraEnv = pkcs11Module.mkEnv {};
 
-  storeInitHook = pkgs.writeShellScript "store-init" ''
-    chown -R nebula-nixpkcs:nebula-nixpkcs "$NIXPKCS_STORE_DIR" || true
-  '';
-
   mkNode = { name, realIp, staticHostMap ? null, extraConfig ? {} }: lib.mkMerge [
     ({ config, ... }: {
       disabledModules = ["services/networking/nebula.nix"];
@@ -46,7 +42,7 @@ let
         keypairs = {
           ${name} = lib.recursiveUpdate {
             enable = true;
-            inherit pkcs11Module extraEnv storeInitHook;
+            inherit pkcs11Module extraEnv;
             id = 1;
             debug = true;
             keyOptions = {
@@ -99,14 +95,14 @@ let
         ${lib.optionalString ((config.nixpkcs.keypairs.${name}.uri or null) != null) ''
           mkdir -p /etc/nebula
           if [ ! -f /etc/nebula/${name}.key ]; then
-            echo ${lib.escapeShellArg config.nixpkcs.keypairs.${name}.uri} > /etc/nebula/${name}.key
+            ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ${name} | tee /etc/nebula/${name}.key
             chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
           fi
         ''}
         ${lib.optionalString ((config.nixpkcs.keypairs.ca.uri or null) != null) ''
           mkdir -p /etc/nebula/ca
           if [ ! -f /etc/nebula/ca/ca.key ]; then
-            echo ${lib.escapeShellArg config.nixpkcs.keypairs.ca.uri} > /etc/nebula/ca/ca.key
+            ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ca | tee /etc/nebula/ca/ca.key
             chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
           fi
         ''}
@@ -121,7 +117,6 @@ let
 
       environment = {
         systemPackages = [ nebula openssl ];
-        variables = extraEnv;
       };
     })
     (lib.mkIf (staticHostMap != null)
@@ -198,7 +193,7 @@ in testers.runNixOSTest {
           keypairs = {
             ca = lib.recursiveUpdate {
               enable = true;
-              inherit pkcs11Module extraEnv storeInitHook;
+              inherit pkcs11Module extraEnv;
               id = 2;
               debug = true;
               keyOptions = {
