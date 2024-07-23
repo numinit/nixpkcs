@@ -341,6 +341,30 @@ maybe_init_store() {
   if [[ -v NIXPKCS_STORE_DIR ]] && [ -n "$NIXPKCS_STORE_DIR" ]; then
     info "Using store directory: $NIXPKCS_STORE_DIR"
     if [ ! -d "$NIXPKCS_STORE_DIR" ]; then
+      # Get rid of the trailing newline on the PIN files, and make sure we own them.
+      # The permissions should be fairly restrictive by default.
+      local owner
+      owner="$(id -u):$(id -g)"
+      if [ -n "$key_options_so_pin" ] \
+         && [ -n "$key_options_so_pin_file" ] && [ -f "$key_options_so_pin_file" ]; then
+        info "Using SO PIN file: $key_options_so_pin_file"
+        log_exec -- truncate -s0 "$key_options_so_pin_file"
+        log_exec -- chown "$owner" "$key_options_so_pin_file"
+        log_exec -- chmod 0600 "$key_options_so_pin_file"
+        echo -n "$key_options_so_pin" >> "$key_options_so_pin_file" || true
+      fi
+
+      if [ -n "$cert_options_user_pin" ] \
+         && [ -n "$cert_options_user_pin_file" ] \
+         && [ -f "$cert_options_user_pin_file" ] \
+         && [ "$(readlink -- "$cert_options_user_pin_file")" != "$(readlink -- "$key_options_so_pin_file")" ]; then
+        info "Using User PIN file: $cert_options_user_pin_file"
+        log_exec -- truncate -s0 "$cert_options_user_pin_file"
+        log_exec -- chown "$owner" "$cert_options_user_pin_file"
+        log_exec -- chmod 0600 "$cert_options_user_pin_file"
+        echo -n "$cert_options_user_pin" >> "$cert_options_user_pin_file" || true
+      fi
+
       info "Initializing store."
 
       # Run the one defined in the module.
