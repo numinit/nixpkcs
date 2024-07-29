@@ -6,7 +6,8 @@
 , self
 , nixpkgs
 , pkcs11Module
-, extraKeypairOptions
+, baseKeyId ? 0
+, extraKeypairOptions ? {}
 , extraMachineOptions ? {}
 }:
 
@@ -43,7 +44,7 @@ let
           ${name} = lib.recursiveUpdate {
             enable = true;
             inherit pkcs11Module extraEnv;
-            id = 10;
+            id = baseKeyId;
             debug = true;
             keyOptions = {
               algorithm = "EC";
@@ -194,7 +195,7 @@ in testers.runNixOSTest {
             ca = lib.recursiveUpdate {
               enable = true;
               inherit pkcs11Module extraEnv;
-              id = 20;
+              id = baseKeyId + 1;
               debug = true;
               keyOptions = {
                 algorithm = "EC";
@@ -227,6 +228,7 @@ in testers.runNixOSTest {
       # Wait for the keys to exist.
       for machine in (alice, bob, charlie):
         machine.wait_until_succeeds('openssl x509 -in /home/{0}/{0}.crt -noout -subject | grep -q "NixOS User {0}\'s Certificate"'.format(machine.name))
+        machine.succeed("nixpkcs-uri | tee /dev/stderr | grep -qE '^{0}[[:space:]]+pkcs11:.*?;?id=[%0-9A-F]+(;|$)'".format(machine.name))
 
       # Charlie is the root of trust.
       charlie.succeed('nebula-cert ca -curve P256 -name charlie -ips 10.32.0.0/16 -pkcs11 "$(</etc/nebula/charlie.key)" -out-crt /etc/nebula/charlie.crt')
