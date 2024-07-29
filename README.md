@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.1.5_
+_Version 1.1.6_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -24,6 +24,10 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.1.6
+    - Support key IDs greater than 9 and up to 2^63-1.
+    - Support listing all or multiple keys using `nixpkcs-uri`.
+    - Reformat sources using `nixpkgs-fmt`.
 - 1.1.5
     - Add `nixpkcs.environment.enable` to populate system environment variables with those necessary to use keypairs. The default is true.
     - Add `nixpkcs.uri.enable` to add a `nixpkcs-uri` tool to `environment.systemPackages` to convert a keypair name into a URI. The default is true.
@@ -72,6 +76,7 @@ These packages were added:
 
 - `nixpkcs-uri`: Prints a PKCS#11 URI for a given key.
     - Pass a key name as $1, and it prints the PKCS#11 URI on stdout.
+    - Pass no keys to list all of them, or multiple to list multiple of them.
 - `pkcs11-provider.uri2pem`: Converts a PKCS#11 URI to PEM.
     - Supports functor syntax: `pkcs11-provider.uri2pem "pkcs11:..."` produces a PEM file in the Nix store
       that corresponds to a PKCS#11 URI.
