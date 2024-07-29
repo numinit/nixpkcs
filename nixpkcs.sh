@@ -165,7 +165,14 @@ p11tool() {
   local op_mode="$1"
   shift
 
-  local args=(--token-label "$token" --id "$(printf '%x' "$id")")
+  # Remove leading zeroes from the ID.
+  local id_str
+  id_str="$(printf '%016x' "$id")"
+  if [[ "$id_str" =~ ^(00)+([0-9a-f]{2,})$ ]]; then
+    id_str="${BASH_REMATCH[2]}"
+  fi
+
+  local args=(--token-label "$token" --id "$id_str")
 
   if [ $use_label -ne 0 ]; then
     args+=(--label "$label")
