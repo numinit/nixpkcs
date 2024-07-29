@@ -51,6 +51,7 @@
           tpmNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
             inherit self nixpkgs;
             inherit (pkgs.tpm2-pkcs11) pkcs11Module;
+            baseKeyId = 256; # swtpm supports rather high IDs, we should test them...
             extraKeypairOptions = {
               token = "nixpkcs";
             };

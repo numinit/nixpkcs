@@ -139,9 +139,12 @@ in testers.runNixOSTest {
 
       # Wait for the keys to exist.
       nginx.wait_until_succeeds('openssl x509 -in /etc/keys/nixpkcs.local.crt -noout -subject | grep -q "nixpkcs.local"')
-      nginx.succeed('systemctl restart nginx')
+
+      # It should be in nixpkcs-uri too.
+      nginx.succeed("nixpkcs-uri | tee /dev/stderr | grep -qE '^nginx[[:space:]]+pkcs11:.*?;?id=%DE%AD%BE%EF%CA%FE(;|$)'")
 
       # Wait for the webserver to come up, and make sure it's reliable thereafter
+      nginx.succeed('systemctl restart nginx')
       cmd = 'curl --cacert /etc/keys/nixpkcs.local.crt https://nixpkcs.local/index.html | tee /dev/stderr | grep "Hello, nixpkcs!"'
       nginx.wait_until_succeeds(cmd)
       for i in range(100):
