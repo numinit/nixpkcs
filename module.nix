@@ -49,9 +49,9 @@ let
         escapeURL value
       else
         throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${builtins.type value}'";
-    
+
     # Converts a list of URI attrs to a query string.
-    toQuery = mapAttrsToList (name: value: 
+    toQuery = mapAttrsToList (name: value:
       if value == null then null else (escapeURL name) + "=" + (serializePkcs11UriValue value)
     );
 
@@ -122,15 +122,40 @@ in
             name = "nixpkcs-uri";
             text = ''
               set -euo pipefail
-              if [ $# -ne 1 ]; then
-                echo "Usage: $0 <key name>" >&2
-                exit 1
-              fi
 
-              case "$1" in
-                ${lib.concatStringsSep "\n  " (lib.mapAttrsToList (name: value: "${lib.escapeShellArg name}) echo ${lib.escapeShellArg value.uri} ;;") cfg.keypairs)}
-                *) echo "unknown key '$1'" >&2 && exit 1 ;;
-              esac
+              # Prints a key name and URI as a tab-separated string.
+              print_key() {
+                printf '%s\t%s\n' "$1" "''${keys["$1"]}"
+              }
+
+              declare -A keys=(
+                ${lib.concatStringsSep "\n  " (lib.mapAttrsToList (name: value: "[${lib.escapeShellArg name}]=${lib.escapeShellArg value.uri}") cfg.keypairs)}
+              )
+
+              if [ $# -gt 0 ]; then
+               # Require that all keys specified exist.
+                for key in "$@"; do
+                  if [[ ! -v keys["$key"] ]]; then
+                    echo "unknown key '$key'" >&2
+                    exit 1
+                  fi
+                done
+
+                if [ $# -gt 1 ]; then
+                  # Print them all out with the requested names.
+                  for key in "$@"; do
+                    print_key "$key"
+                  done
+                else
+                  # Just print the URI if one is provided.
+                  echo "''${keys["$1"]}"
+                fi
+              else
+                # Print all the key names and URIs if none are specified.
+                for key in "''${!keys[@]}"; do
+                  print_key "$key"
+                done
+              fi
             '';
           };
           description = "Override the nixpkcs-uri package, used to convert key names into PKCS#11 URIs.";
