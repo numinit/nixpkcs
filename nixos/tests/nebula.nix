@@ -43,7 +43,7 @@ let
           ${name} = lib.recursiveUpdate {
             enable = true;
             inherit pkcs11Module extraEnv;
-            id = 1;
+            id = 10;
             debug = true;
             keyOptions = {
               algorithm = "EC";
@@ -194,7 +194,7 @@ in testers.runNixOSTest {
             ca = lib.recursiveUpdate {
               enable = true;
               inherit pkcs11Module extraEnv;
-              id = 2;
+              id = 20;
               debug = true;
               keyOptions = {
                 algorithm = "EC";
