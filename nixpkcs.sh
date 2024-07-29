@@ -165,7 +165,7 @@ p11tool() {
   local op_mode="$1"
   shift
 
-  local args=(--token-label "$token" --id "$id")
+  local args=(--token-label "$token" --id "$(printf '%x' "$id")")
 
   if [ $use_label -ne 0 ]; then
     args+=(--label "$label")
