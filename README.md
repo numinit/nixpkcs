@@ -290,7 +290,7 @@ Leaf certificates will be for clients and servers. A single root certificate (or
         - Yubikey 4: `ykman config mode OTP+FIDO+CCID`.
         - Yubikey 5: `ykman config usb`
     2. Set `nixpkcs.enable = true`.
-    3. Optionally set `nixpkcs.pcscUsers = ["your username"]` so the correct users can access the Yubikey as a smartcard.
+    3. Optionally set `nixpkcs.pcsc.users = ["your username"]` so the correct users can access the Yubikey as a smartcard.
 
 2. Set up your [PIN, PUK (PIN Unlock Key), and Management Key](https://developers.yubico.com/PIV/Introduction/Admin_access.html) with **either** ykman or [yubico-piv-tool](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=yubico-piv-tool).
     - Both are in nixpkgs. ykman may be slightly easier, but yubico-piv-tool provides a few more options. Note the [defaults](https://developers.yubico.com/PIV/Introduction/Admin_access.html) for the PIN, PUK, and Management Key. Keep them in a safe place.
