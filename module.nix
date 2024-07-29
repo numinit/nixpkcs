@@ -10,22 +10,60 @@ let
     authority, # The authority
     query ? {} # The query
   }: let
+    /* Converts an integer to a value in a PKCS#11 URI using the following rules:
+     * 0:   %00
+     * 1:   %01
+     * 10:  %0a
+     * 256: %01%00
+     * ...
+     * That is: it's interpreted as a 63-bit positive integer and leading zeroes are stripped.
+     */
+    intToUriValue = value:
+      let
+        zero = "%00";
+
+        # Support Nix's full integer width for PKCS#11 IDs.
+        paddedValue = fixedWidthString 16 "0" (toHexString value);
+        splitValue = builtins.split "([0-9A-F]{2})" paddedValue;
+        replacedValue = lib.imap0
+          (
+            idx: vals:
+            let
+              even = lib.mod idx 2 == 0;
+              val = if even then vals else builtins.elemAt vals 0;
+              length = builtins.length splitValue;
+            in
+            if even && idx < length - 1 && val == "" then "%" else val
+          ) splitValue;
+        deprefixedValue = let
+          split = builtins.split "^(${lib.escapeRegex zero})+" (lib.concatStrings replacedValue);
+        in builtins.elemAt split (builtins.length split - 1);
+      in
+      if deprefixedValue == "" then zero else deprefixedValue;
+
+    # Serializes a string or int to a PKCS#11 value.
     serializePkcs11UriValue = value:
-      if builtins.isInt value && value >= 0 && value <= 255 then
-        "%" + (fixedWidthString 2 "0" (toHexString value))
+      if builtins.isInt value && value >= 0 then
+        intToUriValue value
       else if builtins.isString value then
         escapeURL value
       else
         throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${builtins.type value}'";
     
+    # Converts a list of URI attrs to a query string.
     toQuery = mapAttrsToList (name: value: 
       if value == null then null else (escapeURL name) + "=" + (serializePkcs11UriValue value)
     );
+
+    # The authority string. Just a query string joined with ;.
     authorityString = concatStringsSep ";" (builtins.filter (x: x != null) (toQuery authority));
-    queryString = let
-      queryValue = concatStringsSep "&" (builtins.filter (x: x != null) (toQuery query));
-    in
-    if queryValue == "" then "" else "?" + queryValue;
+
+    # The query string.
+    queryString =
+      let
+        queryValue = concatStringsSep "&" (builtins.filter (x: x != null) (toQuery query));
+      in
+      if queryValue == "" then "" else "?" + queryValue;
   in
   "pkcs11:" + authorityString + queryString;
 
@@ -156,13 +194,13 @@ in
             };
 
             id = mkOption {
-              type = types.int;
+              type = types.ints.unsigned;
               description = "The PKCS#11 key ID.";
               example = 42;
             };
 
             slot = mkOption {
-              type = types.nullOr types.int;
+              type = types.nullOr types.ints.u8;
               default = null;
               description = "The PKCS#11 slot ID. Not always required, but may be in some cases.";
               example = 42;
@@ -267,14 +305,14 @@ in
               };
 
               validityDays = mkOption {
-                type = types.int;
+                type = types.ints.positive;
                 default = 365;
                 description = "The number of days that this cert should be valid for.";
                 example = 365 * 3;
               };
 
               renewalPeriod = mkOption {
-                type = types.int;
+                type = types.ints.positive;
                 default = 14;
                 description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
                 example = 14;
