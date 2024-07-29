@@ -7,8 +7,8 @@
 , nixpkgs
 , pkcs11Module
 , baseKeyId ? 0
-, extraKeypairOptions ? {}
-, extraMachineOptions ? {}
+, extraKeypairOptions ? { }
+, extraMachineOptions ? { }
 }:
 
 let
@@ -18,11 +18,11 @@ let
 
   soPinFile = "/etc/so.pin";
   pinFile = "/etc/user.pin";
-  extraEnv = pkcs11Module.mkEnv {};
+  extraEnv = pkcs11Module.mkEnv { };
 
-  mkNode = { name, realIp, staticHostMap ? null, extraConfig ? {} }: lib.mkMerge [
+  mkNode = { name, realIp, staticHostMap ? null, extraConfig ? { } }: lib.mkMerge [
     ({ config, ... }: {
-      disabledModules = ["services/networking/nebula.nix"];
+      disabledModules = [ "services/networking/nebula.nix" ];
       imports = [
         self.nixosModules.default
         ../modules/services/networking/nebula.nix
@@ -41,31 +41,33 @@ let
       nixpkcs = {
         enable = true;
         keypairs = {
-          ${name} = lib.recursiveUpdate {
-            enable = true;
-            inherit pkcs11Module extraEnv;
-            id = baseKeyId;
-            debug = true;
-            keyOptions = {
-              algorithm = "EC";
-              type = "secp256r1";
-              usage = ["sign" "derive" "decrypt" "wrap"];
-              inherit soPinFile;
-            };
-            certOptions = {
-              serial = "09f91102";
-              subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=NixOS User ${name}'s Certificate";
-              extensions = [
-                # optional, but a good thing to test
-                "v3_ca"
-                "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
-              ];
-              validityDays = 14;
-              renewalPeriod = 7;
-              inherit pinFile;
-              writeTo = "/home/${name}/${name}.crt";
-            };
-          } extraKeypairOptions;
+          ${name} = lib.recursiveUpdate
+            {
+              enable = true;
+              inherit pkcs11Module extraEnv;
+              id = baseKeyId;
+              debug = true;
+              keyOptions = {
+                algorithm = "EC";
+                type = "secp256r1";
+                usage = [ "sign" "derive" "decrypt" "wrap" ];
+                inherit soPinFile;
+              };
+              certOptions = {
+                serial = "09f91102";
+                subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=NixOS User ${name}'s Certificate";
+                extensions = [
+                  # optional, but a good thing to test
+                  "v3_ca"
+                  "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
+                ];
+                validityDays = 14;
+                renewalPeriod = 7;
+                inherit pinFile;
+                writeTo = "/home/${name}/${name}.crt";
+              };
+            }
+            extraKeypairOptions;
         };
       };
 
@@ -136,8 +138,8 @@ let
           lighthouses = builtins.attrNames staticHostMap;
           inherit staticHostMap;
           firewall = {
-            outbound = [ { port = "any"; proto = "any"; host = "any"; } ];
-            inbound = [ { port = "any"; proto = "any"; host = "any"; } ];
+            outbound = [{ port = "any"; proto = "any"; host = "any"; }];
+            inbound = [{ port = "any"; proto = "any"; host = "any"; }];
           };
         };
 
@@ -150,7 +152,8 @@ let
     extraConfig
     extraMachineOptions
   ];
-in testers.runNixOSTest {
+in
+testers.runNixOSTest {
   name = "nixpkcs-test-nebula";
 
   nodes = {
@@ -159,7 +162,7 @@ in testers.runNixOSTest {
       name = "alice";
       realIp = "192.168.1.1";
       staticHostMap = {
-        "10.32.0.2" = [ "192.168.1.2:4242" ];   # Bob
+        "10.32.0.2" = [ "192.168.1.2:4242" ]; # Bob
         "10.32.0.3" = [ "192.168.1.200:4242" ]; # Mallory
       };
     };
@@ -169,7 +172,7 @@ in testers.runNixOSTest {
       name = "bob";
       realIp = "192.168.1.2";
       staticHostMap = {
-        "10.32.0.1" = [ "192.168.1.1:4242" ];   # Alice
+        "10.32.0.1" = [ "192.168.1.1:4242" ]; # Alice
         "10.32.0.3" = [ "192.168.1.200:4242" ]; # Mallory
       };
     };
@@ -192,34 +195,37 @@ in testers.runNixOSTest {
         nixpkcs = {
           enable = true;
           keypairs = {
-            ca = lib.recursiveUpdate {
-              enable = true;
-              inherit pkcs11Module extraEnv;
-              id = baseKeyId + 1;
-              debug = true;
-              keyOptions = {
-                algorithm = "EC";
-                type = "secp256r1";
-                usage = ["sign" "derive" "decrypt" "wrap"];
-                inherit soPinFile;
-              };
-              certOptions = {
-                serial = "66666666";
-                subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=Mallory's Super Legit CA";
-                validityDays = 3650;
-                inherit pinFile;
-                writeTo = "/home/mallory/ca.crt";
-              };
-            } extraKeypairOptions;
+            ca = lib.recursiveUpdate
+              {
+                enable = true;
+                inherit pkcs11Module extraEnv;
+                id = baseKeyId + 1;
+                debug = true;
+                keyOptions = {
+                  algorithm = "EC";
+                  type = "secp256r1";
+                  usage = [ "sign" "derive" "decrypt" "wrap" ];
+                  inherit soPinFile;
+                };
+                certOptions = {
+                  serial = "66666666";
+                  subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=Mallory's Super Legit CA";
+                  validityDays = 3650;
+                  inherit pinFile;
+                  writeTo = "/home/mallory/ca.crt";
+                };
+              }
+              extraKeypairOptions;
           };
         };
       };
     };
   };
 
-  testScript = let
-    sshOpts = "-oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oIdentityFile=/root/.ssh/id_snakeoil";
-  in
+  testScript =
+    let
+      sshOpts = "-oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oIdentityFile=/root/.ssh/id_snakeoil";
+    in
     ''
       # Boot them all up.
       for machine in (alice, bob, charlie):
