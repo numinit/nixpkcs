@@ -8,19 +8,19 @@
 , nixpkgs
 , pkcs11Module
 , extraKeypairOptions
-, extraMachineOptions ? {}
+, extraMachineOptions ? { }
 }:
 
 let
   soPinFile = "/etc/so.pin";
   pinFile = "/etc/user.pin";
-  extraEnv = pkcs11Module.mkEnv {};
+  extraEnv = pkcs11Module.mkEnv { };
 
   storeInitHook = pkgs.writeShellScript "store-init" ''
     chown -R nginx:nginx "$NIXPKCS_STORE_DIR" || true
   '';
 
-  mkNode = { name, extraConfig ? {} }: lib.mkMerge [
+  mkNode = { name, extraConfig ? { } }: lib.mkMerge [
     ({ config, ... }: {
       imports = [
         self.nixosModules.default
@@ -29,31 +29,33 @@ let
       nixpkcs = {
         enable = true;
         keypairs = {
-          ${name} = lib.recursiveUpdate {
-            enable = true;
-            inherit pkcs11Module extraEnv storeInitHook;
-            id = 244837814094590; # 0xDEADBEEFCAFE
-            debug = true;
-            keyOptions = {
-              algorithm = "RSA";
-              type = "3072";
-              usage = ["sign" "derive" ];
-              inherit soPinFile;
-            };
-            certOptions = {
-              serial = "09f91102";
-              subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=nixpkcs.local";
-              extensions = [
-                "v3_ca"
-                "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
-                "subjectAltName=DNS:nixpkcs.local"
-              ];
-              validityDays = 14;
-              renewalPeriod = 7;
-              inherit pinFile;
-              writeTo = "/etc/keys/nixpkcs.local.crt";
-            };
-          } extraKeypairOptions;
+          ${name} = lib.recursiveUpdate
+            {
+              enable = true;
+              inherit pkcs11Module extraEnv storeInitHook;
+              id = 244837814094590; # 0xDEADBEEFCAFE
+              debug = true;
+              keyOptions = {
+                algorithm = "RSA";
+                type = "3072";
+                usage = [ "sign" "derive" ];
+                inherit soPinFile;
+              };
+              certOptions = {
+                serial = "09f91102";
+                subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=nixpkcs.local";
+                extensions = [
+                  "v3_ca"
+                  "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
+                  "subjectAltName=DNS:nixpkcs.local"
+                ];
+                validityDays = 14;
+                renewalPeriod = 7;
+                inherit pinFile;
+                writeTo = "/etc/keys/nixpkcs.local.crt";
+              };
+            }
+            extraKeypairOptions;
         };
       };
 
@@ -103,7 +105,7 @@ let
           };
         };
       };
-      
+
       networking.hosts = {
         "127.0.0.1" = [ "nixpkcs.local" ];
       };
@@ -126,7 +128,8 @@ let
     extraConfig
     extraMachineOptions
   ];
-in testers.runNixOSTest {
+in
+testers.runNixOSTest {
   name = "nixpkcs-test-nginx";
 
   nodes.nginx = mkNode {
