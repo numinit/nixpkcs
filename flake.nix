@@ -132,21 +132,29 @@
 
           nebula =
             let
-              src = fetchFromGitHub {
-                owner = "numinit";
-                repo = nebula.pname;
-                rev = "refs/tags/pkcs11-v${nebula.version}";
-                hash = "sha256-TKAa6gkga8n7DkM0Gl+EW2OjJt+csTd6O5eVGhN9YOk=";
-              };
               version = "${nebula.version}-pkcs11";
+              patchedSrc = stdenv.mkDerivation {
+                name = "nebula-${version}-patched";
+                inherit (nebula) src;
+                patches = [
+                  (pkgs.fetchpatch {
+                    url = "https://github.com/slackhq/nebula/commit/35603d1c39fa8bfb0d35ef7ee29716023d0c65c0.patch";
+                    hash = "sha256-uTE+us+9mH45iBrR0MhH5bFzMSzzyjCitKLJiVpTMR0=";
+                  })
+                ];
+                phases = ["unpackPhase" "patchPhase" "installPhase"];
+                installPhase = "cp -Ra . $out";
+              };
             in
             (nebula.override {
               buildGoModule = args: buildGoModule (args // {
-                inherit src version;
-                vendorHash = "sha256-qv3/7CHcCEDRM3lI+/XIsG/plF+0N5JU5y1kGYfXeGo=";
+                inherit version;
+                src = patchedSrc;
+                vendorHash = "sha256-7G7yp6NV+ECz4MRtHRjF6tiHD9Uq2x8s6y4iIfRih/o=";
               });
             }).overrideAttrs (package: {
-              inherit src version;
+              inherit version;
+              src = patchedSrc;
               tags = [ "pkcs11" ] ++ (package.tags or [ ]);
             });
 
