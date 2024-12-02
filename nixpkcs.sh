@@ -41,6 +41,44 @@ error() {
   log 'E' "$@"
 }
 
+# Cleans up the temp directory.
+_TEMPDIR=''
+_TEMPDIR_PREFIX="nixpkcs."
+_TEMPNAME_FORMAT="${_TEMPDIR_PREFIX}XXXXXXXX"
+# shellcheck disable=SC2317
+_tempdir_cleanup() {
+  if [ -n "$_TEMPDIR" ] && [ -d "$_TEMPDIR" ] && [[ "$(basename -- "$_TEMPDIR")" == "$_TEMPDIR_PREFIX"* ]]; then
+    rm -rf "$_TEMPDIR"
+    _TEMPDIR=''
+  fi
+}
+
+# Creates an empty file with extension $1 (default none) in the temp directory.
+# Sets _TEMP to the path of the file, which will be 0 bytes and only writeable
+# by the current user.
+_TEMP=''
+make_tempfile() {
+  # Create the tempdir
+  if [ -z "$_TEMPDIR" ] || [ ! -d "$_TEMPDIR" ]; then
+    _TEMPDIR="$(mktemp -dt "$_TEMPNAME_FORMAT")"
+    chmod 0700 "$_TEMPDIR"
+    trap _tempdir_cleanup EXIT
+  fi
+
+  local filename="$_TEMPNAME_FORMAT"
+  if [ $# -ge 1 ]; then
+    # Add an extension.
+    filename="$filename.$1"
+  fi
+
+  # Make sure the filename exists, only we can write to it, and it's empty, in that order
+  filename="$(mktemp -p "$_TEMPDIR" -t "$filename")"
+  touch "$filename"
+  chmod 0600 "$filename"
+  truncate -s0 "$filename"
+  _TEMP="$filename"
+}
+
 # Verify that the key name was passed.
 if [ $# -lt 1 ]; then
   error "Usage: $0 <key name>"
@@ -268,7 +306,11 @@ gen_key() {
     -days "$cert_options_validity_days" ${args[@]+"${args[@]}"} -outform PEM)"
 
   info "Importing certificate"
-  echo "$certificate" | openssl x509 -inform pem -outform der | p11tool so --write-object /dev/stdin --type cert
+
+  # As of OpenSC 0.26.0, we can't use /dev/stdin here and need to write the cert to a tempfile.
+  make_tempfile der
+  echo "$certificate" | openssl x509 -inform pem -outform der >> "$_TEMP"
+  p11tool so --write-object "$_TEMP" --type cert
 }
 
 # Returns 0 if the cert is expiring or expired.
