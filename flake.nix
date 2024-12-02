@@ -2,7 +2,7 @@
   description = "Add support for PKCS#11 smartcards to various Nix packages";
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
   };
 
   outputs = inputs@{ self, flake-parts, nixpkgs, ... }:
