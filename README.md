@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.1.7_
+_Version 1.1.8_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -24,6 +24,9 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.1.8
+    - Support NixOS 24.11.
+    - Fix issue with OpenSC 0.26 (in NixOS 24.11 and late 24.05 releases) that would cause key generation to fail while importing the certificate to the token.
 - 1.1.7
     - Support latest Nebula PKCS#11 patches.
 - 1.1.6
