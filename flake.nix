@@ -27,6 +27,11 @@
           config = { };
         };
 
+        devShells.default = with pkgs; mkShell {
+          name = "nixpkcs-dev";
+          packages = [ shellcheck ];
+        };
+
         checks = {
           nssNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
             inherit self nixpkgs;
