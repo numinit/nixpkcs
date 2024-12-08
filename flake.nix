@@ -319,6 +319,17 @@
 
           opensc = opensc.overrideAttrs (finalPackage: previousPackage: {
             passthru = (previousPackage.passthru or { }) // {
+              pkcs11Module = {
+                path = "${finalPackage.finalPackage}/lib/opensc-pkcs11.so";
+                openSslOptions = { };
+                mkEnv =
+                  { debug ? 0
+                  , extraEnv ? { }
+                  }: {
+                    OPENSC_DEBUG = builtins.toString debug;
+                  } // extraEnv;
+              };
+
               withPkcs11Module =
                 {
                   # the module
