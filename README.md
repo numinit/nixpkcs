@@ -1,6 +1,6 @@
 # nixPKCS
 
-_Version 1.1.8_
+_Version 1.1.9_
 
 **Ever wanted all your private keys to live in hardware tokens?** Whether that's a TPM or a Yubikey, [PKCS#11](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 has been one of the [handful](https://developers.yubico.com/PGP/) [of](https://developers.yubico.com/PIV/) [standards](https://developers.yubico.com/WebAuthn/) used to perform
@@ -24,6 +24,10 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.1.9
+    - Expose the OpenSC PKCS#11 provider for Nitrokey compatibility ([#13](https://github.com/numinit/nixpkcs/issues/13))
+    - Update to [pkcs11-provider 0.6](https://github.com/NixOS/nixpkgs/pull/362992) to fix issues using nixpkcs to terminate TLS connections.
+    - Fix issue where the result of a rekey script may have been ignored.
 - 1.1.8
     - Support NixOS 24.11.
     - Fix issue with OpenSC 0.26 (in NixOS 24.11 and late 24.05 releases) that would cause key generation to fail while importing the certificate to the token.
@@ -38,7 +42,7 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
     - Add `nixpkcs.uri.enable` to add a `nixpkcs-uri` tool to `environment.systemPackages` to convert a keypair name into a URI. The default is true.
     - Strip out newlines in PIN files when the store is initialized, and make sure they're root:root/0600 by default.
     - Correct permissions on PKCS#11 TPM store directory and PIN files during store initialization to allow RW access from root:tss.
-    - Fix issues with PCSC polkit rule that would accidentally block unintended actions unrelated to pcsc-lite. (#2)
+    - Fix issues with PCSC polkit rule that would accidentally block unintended actions unrelated to pcsc-lite. ([#2](https://github.com/numinit/nixpkcs/issues/2))
 - 1.1.4
     - Omit the label from the PKCS#11 URI if the module doesn't support them. This fixes consuming the URI from applications
       like OpenSSL (not just OpenSC) when using the `yubico-piv-tool` module.
