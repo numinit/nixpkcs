@@ -559,7 +559,6 @@ declare -a cert_options_extensions
 maybe_init_store
 
 # Read the certificate and run the rekey hook with the old cert.
-rekey_status=0
 if [ "$key_options_force" != 'true' ]; then
   read_cert
   if [ -n "$_CERT" ]; then
@@ -572,7 +571,7 @@ if [ "$key_options_force" != 'true' ]; then
 fi
 
 # Check if we need to regenerate the key.
-if [ $rekey_status -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; }; then
+if [ $_REKEY_STATUS -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; }; then
   gen_key
   read_cert
   if is_expiring "$_CERT" "$cert_options_renewal_period"; then
