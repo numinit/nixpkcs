@@ -22,10 +22,8 @@ let
 
   mkNode = { name, realIp, staticHostMap ? null, extraConfig ? { } }: lib.mkMerge [
     ({ config, ... }: {
-      disabledModules = [ "services/networking/nebula.nix" ];
       imports = [
         self.nixosModules.default
-        ../modules/services/networking/nebula.nix
       ];
       networking = {
         hostName = name;
