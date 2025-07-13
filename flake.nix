@@ -2,7 +2,7 @@
   description = "Add support for PKCS#11 smartcards to various Nix packages";
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
   };
 
   outputs = inputs@{ self, flake-parts, nixpkgs, ... }:
@@ -55,7 +55,7 @@
           };
           tpmNebulaTest = pkgs.callPackage ./nixos/tests/nebula.nix {
             inherit self nixpkgs;
-            inherit (pkgs.tpm2-pkcs11) pkcs11Module;
+            inherit (pkgs.tpm2-pkcs11.abrmd) pkcs11Module;
             baseKeyId = 256; # swtpm supports rather high IDs, we should test them...
             extraKeypairOptions = {
               token = "nixpkcs";
@@ -70,7 +70,7 @@
           };
           nginxTest = pkgs.callPackage ./nixos/tests/nginx.nix {
             inherit self nixpkgs;
-            inherit (pkgs.tpm2-pkcs11) pkcs11Module;
+            inherit (pkgs.tpm2-pkcs11.abrmd) pkcs11Module;
             extraKeypairOptions = {
               token = "nixpkcs";
             };
@@ -406,20 +406,7 @@
             } // (mkPkcs11Consumers finalPackage.finalPackage);
           });
 
-          tpm2-pkcs11 = (tpm2-pkcs11.override {
-            fapiSupport = false;
-          }).overrideAttrs (finalPackage: previousPackage: {
-            src = fetchFromGitHub {
-              owner = "tpm2-software";
-              repo = finalPackage.pname;
-              # Needed to support key agreement with TPM2
-              rev = "eb3897be3bd6d837b2d4819507c1f787624510e2";
-              hash = "sha256-7ftit6g3FT5qwlJhgbYHBvXoDNJeyF9cIScEIgCPlcA=";
-            };
-
-            # Silence spammy warnings
-            configureFlags = (previousPackage.configureFlags or [ ]) ++ [ "--with-fapi=no" ];
-
+          tpm2-pkcs11 = tpm2-pkcs11.overrideAttrs (finalPackage: previousPackage: {
             passthru = (previousPackage.passthru or { }) // {
               pkcs11Module = {
                 path = "${finalPackage.finalPackage}/lib/libtpm2_pkcs11.so";
