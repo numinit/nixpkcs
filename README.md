@@ -24,6 +24,9 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.2.0
+    - Support NixOS 25.05. Note that we are dropping support for 24.11 and previous with this change, and require using `tpm2-pkcs11.abrmd.pkcsModule` for Nebula now.
+    - Drop patches for tpm2-pkcs11 since they are upstreamed in nixpkgs.
 - 1.1.9
     - Expose the OpenSC PKCS#11 provider for Nitrokey compatibility ([#13](https://github.com/numinit/nixpkcs/issues/13))
     - Update to [pkcs11-provider 0.6](https://github.com/NixOS/nixpkgs/pull/362992) to fix issues using nixpkcs to terminate TLS connections.
