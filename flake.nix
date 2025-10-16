@@ -627,6 +627,72 @@
                     // (mkPkcs11Consumers finalPackage.finalPackage);
                 }
               );
+
+              yubihsm-shell = yubihsm-shell.overrideAttrs (
+                finalPackage: previousPackage: {
+                  passthru =
+                    (previousPackage.passthru or { })
+                    // {
+                      pkcs11Module = {
+                        path = "${finalPackage.finalPackage}/lib/pkcs11/yubihsm_pkcs11.so";
+                        openSslOptions = {
+                          pkcs11-module-login-behavior = "never";
+                          pkcs11-module-quirks = "no-deinit no-operation-state";
+                          pkcs11-module-cache-pins = "cache";
+                        };
+                        mkEnv =
+                          {
+                            debug ? false,
+                            libdebug ? false,
+                            dinout ? false,
+                            debug-file ? "stderr",
+                            connector ? "yhusb://",
+                            cacert ? null,
+                            proxy ? null,
+                            timeout ? 5,
+                            extraConf ? { },
+                            extraEnv ? { },
+                          }:
+                          {
+                            # https://docs.yubico.com/hardware/yubihsm-2/hsm-2-user-guide/hsm2-sdk-tools-libraries.html#configuration
+                            YUBIHSM_PKCS11_CONF = writeText "yubihsm_pkcs11.conf" (
+                              lib.generators.toINIWithGlobalSection
+                                {
+                                  mkKeyValue =
+                                    let
+                                      originalMkKeyValue = lib.generators.mkKeyValueDefault { } " = ";
+                                    in
+                                    k: v:
+                                    if v == true then
+                                      k
+                                    else if v == false || v == null then
+                                      ""
+                                    else
+                                      originalMkKeyValue k v;
+                                }
+                                {
+                                  globalSection = {
+                                    inherit
+                                      debug
+                                      libdebug
+                                      dinout
+                                      debug-file
+                                      connector
+                                      cacert
+                                      proxy
+                                      timeout
+                                      ;
+                                  }
+                                  // extraConf;
+                                }
+                            );
+                          }
+                          // extraEnv;
+                      };
+                    }
+                    // (mkPkcs11Consumers finalPackage.finalPackage);
+                }
+              );
             };
         };
     };
