@@ -45,7 +45,7 @@ error() {
 _TEMPDIR=''
 _TEMPDIR_PREFIX="nixpkcs."
 _TEMPNAME_FORMAT="${_TEMPDIR_PREFIX}XXXXXXXX"
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 _tempdir_cleanup() {
   if [ -n "$_TEMPDIR" ] && [ -d "$_TEMPDIR" ] && [[ "$(basename -- "$_TEMPDIR")" == "$_TEMPDIR_PREFIX"* ]]; then
     rm -rf "$_TEMPDIR"
@@ -510,7 +510,7 @@ vars=(token id uri
     error "Invalid digest: $cert_options_digest. Use 'openssl list --digest-commands' for a list."
     exit 1
   fi
- 
+
   # Read the pin file(s).
   read_secret_file "$key_options_so_pin_file"
   key_options_so_pin="$_SECRET"
@@ -548,7 +548,7 @@ debug "key_options_usage=${!key_options_usage[*]}"
 
 # Read the extensions.
 declare -a cert_options_extensions
-{ mapfile -t cert_options_extensions; 
+{ mapfile -t cert_options_extensions;
   debug "cert_options_extensions=${cert_options_extensions[*]}"
 } < <(
   echo "$NIXPKCS_KEY_SPEC" | \
