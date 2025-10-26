@@ -22,6 +22,9 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 
 ## Changelog
 
+- 1.2.1
+    - Support the YubiHSM and NixOS 25.11. (@numinit, [#16](https://github.com/numinit/nixpkcs/issues/16))
+    - Fix NixOS 25.11 shellcheck issues. (@Arbel-arad, [#15](https://github.com/numinit/nixpkcs/issues/15))
 - 1.2.0
     - Support NixOS 25.05. Note that we are dropping support for 24.11 and previous with this change, and require using `tpm2-pkcs11.abrmd.pkcsModule` for Nebula now.
     - Drop patches for tpm2-pkcs11 since they are upstreamed in nixpkgs.
@@ -95,9 +98,11 @@ These packages were added:
 
 As of version 1.1.1, you can use the passthru syntax to automatically get an PKCS#11 consumer that uses a particular PKCS#11 module (for instance, `yubico-piv-tool.openssl` or `tpm2-pkcs11.opensc`).
 
-- `yubico-piv-tool.pkcs11Module`
-- `tpm2-pkcs11.pkcs11Module`
-- `nss_latest.pkcs11Module`
+- `yubico-piv-tool.pkcs11Module` (Yubikey)
+- `tpm2-pkcs11.pkcs11Module` (TPM2)
+- `opensc.pkcs11Module` (NitroKey)
+- `yubihsm-shell.pkcs11Module` (YubiHSM)
+- `nss_latest.pkcs11Module` (NSS, for testing)
 
 ## Quickstart: Key Management
 
