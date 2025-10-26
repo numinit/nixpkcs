@@ -1,155 +1,194 @@
-{ lib
-, testers
-, nebula
-, openssl
-, pkgs
-, self
-, nixpkgs
-, pkcs11Module
-, baseKeyId ? 0
-, extraKeypairOptions ? { }
-, extraMachineOptions ? { }
+{
+  lib,
+  testers,
+  nebula,
+  openssl,
+  pkgs,
+  self,
+  nixpkgs,
+  pkcs11Module,
+  baseKeyId ? 0,
+  extraKeypairOptions ? { },
+  extraMachineOptions ? { },
 }:
 
 let
   # We'll need to be able to trade cert files between nodes via scp.
   inherit (import "${nixpkgs}/nixos/tests/ssh-keys.nix" pkgs)
-    snakeOilPrivateKey snakeOilPublicKey;
+    snakeOilPrivateKey
+    snakeOilPublicKey
+    ;
 
   soPinFile = "/etc/so.pin";
   pinFile = "/etc/user.pin";
   extraEnv = pkcs11Module.mkEnv { };
 
-  mkNode = { name, realIp, staticHostMap ? null, extraConfig ? { } }: lib.mkMerge [
-    ({ config, ... }: {
-      imports = [
-        self.nixosModules.default
-      ];
-      networking = {
-        hostName = name;
-        interfaces.eth1 = {
-          ipv4.addresses = lib.mkForce [{
-            address = realIp;
-            prefixLength = 24;
-          }];
-          useDHCP = false;
-        };
-      };
-
-      nixpkcs = {
-        enable = true;
-        keypairs = {
-          ${name} = lib.recursiveUpdate
-            {
-              enable = true;
-              inherit pkcs11Module extraEnv;
-              id = baseKeyId;
-              debug = true;
-              keyOptions = {
-                algorithm = "EC";
-                type = "secp256r1";
-                usage = [ "sign" "derive" "decrypt" "wrap" ];
-                inherit soPinFile;
-              };
-              certOptions = {
-                serial = "09f91102";
-                subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=NixOS User ${name}'s Certificate";
-                extensions = [
-                  # optional, but a good thing to test
-                  "v3_ca"
-                  "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
-                ];
-                validityDays = 14;
-                renewalPeriod = 7;
-                inherit pinFile;
-                writeTo = "/home/${name}/${name}.crt";
-              };
-            }
-            extraKeypairOptions;
-        };
-      };
-
-      system.activationScripts.initTest.text = ''
-        ${lib.optionalString (config.networking.hostName != "mallory") ''
-          # No SSH private key for Mallory.
-          if [ ! -d /root/.ssh ]; then
-            mkdir -p /root/.ssh
-            chown 700 /root/.ssh
-            cat ${lib.escapeShellArg snakeOilPrivateKey} > /root/.ssh/id_snakeoil
-            chown 600 /root/.ssh/id_snakeoil
-          fi
-        ''}
-        if [ ! -f ${lib.escapeShellArg pinFile} ]; then
-          echo -n 22446688 > ${lib.escapeShellArg pinFile}
-          chmod 0640 ${lib.escapeShellArg pinFile}
-          chown root:nebula-nixpkcs ${lib.escapeShellArg pinFile} || true
-        fi
-        if [ ! -f ${lib.escapeShellArg soPinFile} ]; then
-          # If we are logging in as the user, place the user PIN in the SO PIN file.
-          ${if config.nixpkcs.keypairs.${name}.keyOptions.loginAsUser then ''
-            ln -s ${lib.escapeShellArg pinFile} ${lib.escapeShellArg soPinFile}
-          '' else ''
-            echo -n 11335577 > ${lib.escapeShellArg soPinFile}
-            chmod 0600 ${lib.escapeShellArg soPinFile}
-          ''}
-        fi
-        ${lib.optionalString ((config.nixpkcs.keypairs.${name}.uri or null) != null) ''
-          mkdir -p /etc/nebula
-          if [ ! -f /etc/nebula/${name}.key ]; then
-            ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ${name} | tee /etc/nebula/${name}.key
-            chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
-          fi
-        ''}
-        ${lib.optionalString ((config.nixpkcs.keypairs.ca.uri or null) != null) ''
-          mkdir -p /etc/nebula/ca
-          if [ ! -f /etc/nebula/ca/ca.key ]; then
-            ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ca | tee /etc/nebula/ca/ca.key
-            chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
-          fi
-        ''}
-      '';
-
-      services.openssh.enable = true;
-
-      users.users = {
-        ${name}.isNormalUser = true;
-        root.openssh.authorizedKeys.keys = [ snakeOilPublicKey ];
-      };
-
-      environment = {
-        systemPackages = [ nebula openssl ];
-      };
-    })
-    (lib.mkIf (staticHostMap != null)
-      ({ config, ... }: {
-        services.nebula.networks.nixpkcs = {
-          # Note that these paths won't exist when the machine is first booted.
-          enable = lib.mkDefault true;
-          ca = "/etc/nebula/ca.crt";
-          cert = "/etc/nebula/${name}.crt";
-          key = config.nixpkcs.keypairs.${name}.uri;
-          listen = {
-            host = "0.0.0.0";
-            port = 4242;
+  mkNode =
+    {
+      name,
+      realIp,
+      staticHostMap ? null,
+      extraConfig ? { },
+    }:
+    lib.mkMerge [
+      (
+        { config, ... }:
+        {
+          imports = [
+            self.nixosModules.default
+          ];
+          networking = {
+            hostName = name;
+            interfaces.eth1 = {
+              ipv4.addresses = lib.mkForce [
+                {
+                  address = realIp;
+                  prefixLength = 24;
+                }
+              ];
+              useDHCP = false;
+            };
           };
-          isLighthouse = true;
-          lighthouses = builtins.attrNames staticHostMap;
-          inherit staticHostMap;
-          firewall = {
-            outbound = [{ port = "any"; proto = "any"; host = "any"; }];
-            inbound = [{ port = "any"; proto = "any"; host = "any"; }];
-          };
-        };
 
-        # So we pass down PKCS#11 environment variables to Nebula.
-        systemd.services."nebula@nixpkcs" = {
-          environment = extraEnv;
-        };
-      })
-    )
-    extraConfig
-    extraMachineOptions
-  ];
+          nixpkcs = {
+            enable = true;
+            keypairs = {
+              ${name} = lib.recursiveUpdate {
+                enable = true;
+                inherit pkcs11Module extraEnv;
+                id = baseKeyId;
+                debug = true;
+                keyOptions = {
+                  algorithm = "EC";
+                  type = "secp256r1";
+                  usage = [
+                    "sign"
+                    "derive"
+                    "decrypt"
+                    "wrap"
+                  ];
+                  inherit soPinFile;
+                };
+                certOptions = {
+                  serial = "09f91102";
+                  subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=NixOS User ${name}'s Certificate";
+                  extensions = [
+                    # optional, but a good thing to test
+                    "v3_ca"
+                    "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"
+                  ];
+                  validityDays = 14;
+                  renewalPeriod = 7;
+                  inherit pinFile;
+                  writeTo = "/home/${name}/${name}.crt";
+                };
+              } extraKeypairOptions;
+            };
+          };
+
+          system.activationScripts.initTest.text = ''
+            ${lib.optionalString (config.networking.hostName != "mallory") ''
+              # No SSH private key for Mallory.
+              if [ ! -d /root/.ssh ]; then
+                mkdir -p /root/.ssh
+                chown 700 /root/.ssh
+                cat ${lib.escapeShellArg snakeOilPrivateKey} > /root/.ssh/id_snakeoil
+                chown 600 /root/.ssh/id_snakeoil
+              fi
+            ''}
+            if [ ! -f ${lib.escapeShellArg pinFile} ]; then
+              echo -n 22446688 > ${lib.escapeShellArg pinFile}
+              chmod 0640 ${lib.escapeShellArg pinFile}
+              chown root:nebula-nixpkcs ${lib.escapeShellArg pinFile} || true
+            fi
+            if [ ! -f ${lib.escapeShellArg soPinFile} ]; then
+              # If we are logging in as the user, place the user PIN in the SO PIN file.
+              ${
+                if config.nixpkcs.keypairs.${name}.keyOptions.loginAsUser then
+                  ''
+                    ln -s ${lib.escapeShellArg pinFile} ${lib.escapeShellArg soPinFile}
+                  ''
+                else
+                  ''
+                    echo -n 11335577 > ${lib.escapeShellArg soPinFile}
+                    chmod 0600 ${lib.escapeShellArg soPinFile}
+                  ''
+              }
+            fi
+            ${lib.optionalString ((config.nixpkcs.keypairs.${name}.uri or null) != null) ''
+              mkdir -p /etc/nebula
+              if [ ! -f /etc/nebula/${name}.key ]; then
+                ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ${name} | tee /etc/nebula/${name}.key
+                chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
+              fi
+            ''}
+            ${lib.optionalString ((config.nixpkcs.keypairs.ca.uri or null) != null) ''
+              mkdir -p /etc/nebula/ca
+              if [ ! -f /etc/nebula/ca/ca.key ]; then
+                ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ca | tee /etc/nebula/ca/ca.key
+                chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
+              fi
+            ''}
+          '';
+
+          services.openssh.enable = true;
+
+          users.users = {
+            ${name}.isNormalUser = true;
+            root.openssh.authorizedKeys.keys = [ snakeOilPublicKey ];
+          };
+
+          environment = {
+            systemPackages = [
+              nebula
+              openssl
+            ];
+          };
+        }
+      )
+      (lib.mkIf (staticHostMap != null) (
+        { config, ... }:
+        {
+          services.nebula.networks.nixpkcs = {
+            # Note that these paths won't exist when the machine is first booted.
+            enable = lib.mkDefault true;
+            ca = "/etc/nebula/ca.crt";
+            cert = "/etc/nebula/${name}.crt";
+            key = config.nixpkcs.keypairs.${name}.uri;
+            listen = {
+              host = "0.0.0.0";
+              port = 4242;
+            };
+            isLighthouse = true;
+            lighthouses = builtins.attrNames staticHostMap;
+            inherit staticHostMap;
+            firewall = {
+              outbound = [
+                {
+                  port = "any";
+                  proto = "any";
+                  host = "any";
+                }
+              ];
+              inbound = [
+                {
+                  port = "any";
+                  proto = "any";
+                  host = "any";
+                }
+              ];
+            };
+          };
+
+          # So we pass down PKCS#11 environment variables to Nebula.
+          systemd.services."nebula@nixpkcs" = {
+            environment = extraEnv;
+          };
+        }
+      ))
+      extraConfig
+      extraMachineOptions
+    ];
 in
 testers.runNixOSTest {
   name = "nixpkcs-test-nebula";
@@ -193,27 +232,30 @@ testers.runNixOSTest {
         nixpkcs = {
           enable = true;
           keypairs = {
-            ca = lib.recursiveUpdate
-              {
-                enable = true;
-                inherit pkcs11Module extraEnv;
-                id = baseKeyId + 1;
-                debug = true;
-                keyOptions = {
-                  algorithm = "EC";
-                  type = "secp256r1";
-                  usage = [ "sign" "derive" "decrypt" "wrap" ];
-                  inherit soPinFile;
-                };
-                certOptions = {
-                  serial = "66666666";
-                  subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=Mallory's Super Legit CA";
-                  validityDays = 3650;
-                  inherit pinFile;
-                  writeTo = "/home/mallory/ca.crt";
-                };
-              }
-              extraKeypairOptions;
+            ca = lib.recursiveUpdate {
+              enable = true;
+              inherit pkcs11Module extraEnv;
+              id = baseKeyId + 1;
+              debug = true;
+              keyOptions = {
+                algorithm = "EC";
+                type = "secp256r1";
+                usage = [
+                  "sign"
+                  "derive"
+                  "decrypt"
+                  "wrap"
+                ];
+                inherit soPinFile;
+              };
+              certOptions = {
+                serial = "66666666";
+                subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=Mallory's Super Legit CA";
+                validityDays = 3650;
+                inherit pinFile;
+                writeTo = "/home/mallory/ca.crt";
+              };
+            } extraKeypairOptions;
           };
         };
       };
@@ -280,7 +322,7 @@ testers.runNixOSTest {
       for machine in (alice, bob, mallory):
         machine.shutdown()
         machine.start()
-     
+
       # Wait for Nebula to come up.
       for machine in (alice, bob, mallory):
         machine.wait_for_unit('nebula@nixpkcs.service')
