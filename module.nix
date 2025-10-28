@@ -368,6 +368,16 @@ in
                       example = "/etc/nixpkcs/so.pin";
                     };
 
+                    softFail = mkOption {
+                      type = types.bool;
+                      default = false;
+                      description = ''
+                        If set to true, exit with success if we can't check the key for renewal.
+                        This is useful for removable devices like yubikeys.
+                      '';
+                      example = true;
+                    };
+
                     force = mkOption {
                       type = types.bool;
                       default = false;

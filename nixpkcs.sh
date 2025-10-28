@@ -256,6 +256,7 @@ _CERT=''
 read_cert() {
   info "Reading certificate"
   local cert
+  local result
   set +e
   cert="$(p11tool user --read-object --type cert | openssl x509 -inform der)"
   result=$?
@@ -270,11 +271,19 @@ read_cert() {
   fi
 }
 
+# Probes the token presence. If this returns 0, the token is likely present.
+probe_token() {
+  info "Probing token presence"
+  local result
+  set +e
+  p11tool anonymous --list-slots
+  result=$?
+  set -e
+  return $result
+}
+
 # Generates a key.
 gen_key() {
-  info "Available slots"
-  p11tool anonymous --list-slots
-
   if [ "$key_options_destroy_old" == 'true' ]; then
     info "Destroying old key"
     p11tool so --delete-object --type privkey || true
@@ -450,12 +459,12 @@ info "Starting."
 
 # Make sure we have the list of params we're reading ahead of time.
 declare token id uri \
-  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_destroy_old key_options_login_as_user \
+  key_options_algorithm key_options_type key_options_so_pin_file key_options_soft_fail key_options_force key_options_destroy_old key_options_login_as_user \
   cert_options_digest cert_options_serial cert_options_subject \
   cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 
 vars=(token id uri
-  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_destroy_old key_options_login_as_user
+  key_options_algorithm key_options_type key_options_so_pin_file key_options_soft_fail key_options_force key_options_destroy_old key_options_login_as_user
   cert_options_digest cert_options_serial cert_options_subject
   cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 )
@@ -532,7 +541,7 @@ vars=(token id uri
         end;
       unpack_exact_n([
         .token? // "", .id? // 0, .uri? // "",
-        .keyOptions?.algorithm? // "", .keyOptions?.type? // "", .keyOptions?.soPinFile? // "", .keyOptions?.force // false, .keyOptions?.destroyOld // false, .keyOptions?.loginAsUser // false,
+        .keyOptions?.algorithm? // "", .keyOptions?.type? // "", .keyOptions?.soPinFile? // "", .keyOptions?.softFail // false, .keyOptions?.force // false, .keyOptions?.destroyOld // false, .keyOptions?.loginAsUser // false,
         .certOptions?.digest? // "SHA256", .certOptions?.serial? // "", .certOptions.subject? // "",
         .certOptions?.validityDays? // 0,
         .certOptions?.renewalPeriod? // 0, .certOptions?.pinFile? // "", .certOptions?.rekeyHook? // ""
@@ -561,8 +570,19 @@ declare -a cert_options_extensions
     jq -r '(.certOptions?.extensions? // []).[]'
 )
 
+failure=1
+if [ "$key_options_soft_fail" == 'true' ]; then
+  failure=0
+fi
+
 # Initialize the store.
 maybe_init_store
+
+# Ensure that the token is present.
+if ! probe_token; then
+  warn "Token is not present; exiting with status $failure."
+  exit $failure
+fi
 
 # Read the certificate and run the rekey hook with the old cert.
 if [ "$key_options_force" != 'true' ]; then
@@ -578,6 +598,7 @@ fi
 
 # Check if we need to regenerate the key.
 if [ $_REKEY_STATUS -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; }; then
+  probe_token
   gen_key
   read_cert
   if [ -n "$_CERT" ]; then
@@ -598,5 +619,5 @@ if [ -n "$_CERT" ]; then
   exit 0
 else
   error "No certificate found! nixpkcs may have failed to run."
-  exit 1
+  exit 2
 fi
