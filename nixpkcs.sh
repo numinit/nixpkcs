@@ -275,6 +275,12 @@ gen_key() {
   info "Available slots"
   p11tool anonymous --list-slots
 
+  if [ "$key_options_destroy_old" == 'true' ]; then
+    info "Destroying old key"
+    p11tool so --delete-object --type privkey || true
+    p11tool so --delete-object --type cert || true
+  fi
+
   info "Generating key"
   local usages=()
   for usage in sign derive decrypt wrap; do
@@ -444,12 +450,12 @@ info "Starting."
 
 # Make sure we have the list of params we're reading ahead of time.
 declare token id uri \
-  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_login_as_user \
+  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_destroy_old key_options_login_as_user \
   cert_options_digest cert_options_serial cert_options_subject \
   cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 
 vars=(token id uri
-  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_login_as_user
+  key_options_algorithm key_options_type key_options_so_pin_file key_options_force key_options_destroy_old key_options_login_as_user
   cert_options_digest cert_options_serial cert_options_subject
   cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 )
@@ -526,7 +532,7 @@ vars=(token id uri
         end;
       unpack_exact_n([
         .token? // "", .id? // 0, .uri? // "",
-        .keyOptions?.algorithm? // "", .keyOptions?.type? // "", .keyOptions?.soPinFile? // "", .keyOptions?.force // false, .keyOptions?.loginAsUser // false,
+        .keyOptions?.algorithm? // "", .keyOptions?.type? // "", .keyOptions?.soPinFile? // "", .keyOptions?.force // false, .keyOptions?.destroyOld // false, .keyOptions?.loginAsUser // false,
         .certOptions?.digest? // "SHA256", .certOptions?.serial? // "", .certOptions.subject? // "",
         .certOptions?.validityDays? // 0,
         .certOptions?.renewalPeriod? // 0, .certOptions?.pinFile? // "", .certOptions?.rekeyHook? // ""

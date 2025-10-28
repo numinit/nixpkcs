@@ -375,6 +375,13 @@ in
                       example = true;
                     };
 
+                    destroyOld = mkOption {
+                      type = types.bool;
+                      default = false;
+                      description = "Destroy the old key on the token when generating a new key. Defaults to false.";
+                      example = true;
+                    };
+
                     loginAsUser = mkOption {
                       type = types.bool;
                       default = true;
@@ -407,7 +414,7 @@ in
 
                     renewalPeriod = mkOption {
                       type = types.int;
-                      default = 14;
+                      default = -1;
                       description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
                       example = 14;
                     };
