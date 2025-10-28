@@ -574,16 +574,23 @@ fi
 if [ $_REKEY_STATUS -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; }; then
   gen_key
   read_cert
-  if is_expiring "$_CERT" "$cert_options_renewal_period"; then
-    warn "Generated a cert that's about to expire!"
-  fi
+  if [ -n "$_CERT" ]; then
+    if is_expiring "$_CERT" "$cert_options_renewal_period"; then
+      warn "Generated a cert that's about to expire!"
+    fi
 
-  echo "$_CERT" | run_rekey_hook "$label" new
+    echo "$_CERT" | run_rekey_hook "$label" new
 
-  if [ $_REKEY_STATUS -ne 0 ]; then
-    warn "Rekey hook returned $_REKEY_STATUS."
+    if [ $_REKEY_STATUS -ne 0 ]; then
+      warn "Rekey hook returned $_REKEY_STATUS."
+    fi
   fi
 fi
 
-echo "$_CERT"
-exit 0
+if [ -n "$_CERT" ]; then
+  echo "$_CERT"
+  exit 0
+else
+  error "No certificate found! nixpkcs may have failed to run."
+  exit 1
+fi
