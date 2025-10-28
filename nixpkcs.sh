@@ -357,6 +357,25 @@ is_expiring() {
   fi
 }
 
+# Returns 0 if $1 is on or after now.
+# @param $1 the date, in YYYY-MM-DD format
+is_valid_on() {
+  local start_date="$1"
+  if ! [[ "$start_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    warn "Invalid date: $start_date"
+    return 1
+  fi
+
+  local start now
+  start="$(date -d "$1" +%s)"
+  now="$(date +%s)"
+  if [ "$now" -ge "$start" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 # Calls a store init hook. Checks that we are unable to write to it first.
 # $1: The name of the variable to use for the call.
 # $2: --source to source it, --exec to exec it.
@@ -461,12 +480,12 @@ info "Starting."
 declare token id uri \
   key_options_algorithm key_options_type key_options_so_pin_file key_options_soft_fail key_options_force key_options_destroy_old key_options_login_as_user \
   cert_options_digest cert_options_serial cert_options_subject \
-  cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
+  cert_options_valid_starting cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 
 vars=(token id uri
   key_options_algorithm key_options_type key_options_so_pin_file key_options_soft_fail key_options_force key_options_destroy_old key_options_login_as_user
   cert_options_digest cert_options_serial cert_options_subject
-  cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
+  cert_options_valid_starting cert_options_validity_days cert_options_renewal_period cert_options_user_pin_file cert_options_rekey_hook
 )
 
 {
@@ -543,7 +562,7 @@ vars=(token id uri
         .token? // "", .id? // 0, .uri? // "",
         .keyOptions?.algorithm? // "", .keyOptions?.type? // "", .keyOptions?.soPinFile? // "", .keyOptions?.softFail // false, .keyOptions?.force // false, .keyOptions?.destroyOld // false, .keyOptions?.loginAsUser // false,
         .certOptions?.digest? // "SHA256", .certOptions?.serial? // "", .certOptions.subject? // "",
-        .certOptions?.validityDays? // 0,
+        .certOptions?.validStarting? // "", .certOptions?.validityDays? // 0,
         .certOptions?.renewalPeriod? // 0, .certOptions?.pinFile? // "", .certOptions?.rekeyHook? // ""
       ]; $expectedLength | tonumber)
     '
@@ -597,7 +616,8 @@ if [ "$key_options_force" != 'true' ]; then
 fi
 
 # Check if we need to regenerate the key.
-if [ $_REKEY_STATUS -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; }; then
+if [ $_REKEY_STATUS -eq 0 ] && { [ -z "$_CERT" ] || is_expiring "$_CERT" "$cert_options_renewal_period"; } \
+   && { [ -z "$cert_options_valid_starting" ] || is_valid_on "$cert_options_valid_starting"; }; then
   probe_token
   gen_key
   read_cert
@@ -616,6 +636,9 @@ fi
 
 if [ -n "$_CERT" ]; then
   echo "$_CERT"
+  exit 0
+elif [ -n "$cert_options_valid_starting" ] && ! is_valid_on "$cert_options_valid_starting"; then
+  warn "Token is present but we are not yet ready to generate the key (waiting until $cert_options_valid_starting). Exiting."
   exit 0
 else
   error "No certificate found! nixpkcs may have failed to run."
