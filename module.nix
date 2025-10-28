@@ -260,7 +260,7 @@ in
                   };
 
                   storeInitHook = mkOption {
-                    type = types.nullOr types.path;
+                    type = with types; nullOr path;
                     default = pkgs.writeShellScript "default-store-init-hook" ":";
                     description = ''
                       Run the given script after the store is initialized and before nixpkcs runs.
