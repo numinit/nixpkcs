@@ -415,6 +415,13 @@ in
                       example = "09f91102";
                     };
 
+                    validStarting = mkOption {
+                      type = with types; nullOr (strMatching "^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+                      default = null;
+                      description = "The date that this key should be generated, in YYYY-MM-DD format. Default today.";
+                      example = "2025-12-25";
+                    };
+
                     validityDays = mkOption {
                       type = types.ints.positive;
                       default = 365;
