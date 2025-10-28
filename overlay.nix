@@ -185,7 +185,6 @@ in
             # The provider options. Defaults to loading provider URLs from PEM files.
             providerOptions = {
               pkcs11-module-encode-provider-uri-to-pem = true;
-              pkcs11-module-load-behavior = "early";
             }
             // lib.optionalAttrs (pkcs11Module != null) {
               pkcs11-module-path = "${pkcs11Module.path}";
@@ -512,8 +511,7 @@ in
           pkcs11Module = {
             path = "${finalPackage.finalPackage}/lib/pkcs11/yubihsm_pkcs11.so";
             openSslOptions = {
-              pkcs11-module-login-behavior = "never";
-              pkcs11-module-quirks = "no-deinit no-operation-state";
+              pkcs11-module-quirks = "no-deinit";
               pkcs11-module-cache-pins = "cache";
             };
             mkEnv =
@@ -531,36 +529,38 @@ in
               }:
               {
                 # https://docs.yubico.com/hardware/yubihsm-2/hsm-2-user-guide/hsm2-sdk-tools-libraries.html#configuration
-                YUBIHSM_PKCS11_CONF = final.writeText "yubihsm_pkcs11.conf" (
-                  lib.generators.toINIWithGlobalSection
-                    {
-                      mkKeyValue =
-                        let
-                          originalMkKeyValue = lib.generators.mkKeyValueDefault { } " = ";
-                        in
-                        k: v:
-                        if v == true then
-                          k
-                        else if v == false || v == null then
-                          ""
-                        else
-                          originalMkKeyValue k v;
-                    }
-                    {
-                      globalSection = {
-                        inherit
-                          debug
-                          libdebug
-                          dinout
-                          debug-file
-                          connector
-                          cacert
-                          proxy
-                          timeout
-                          ;
+                YUBIHSM_PKCS11_CONF = toString (
+                  final.writeText "yubihsm_pkcs11.conf" (
+                    lib.generators.toINIWithGlobalSection
+                      {
+                        mkKeyValue =
+                          let
+                            originalMkKeyValue = lib.generators.mkKeyValueDefault { } " = ";
+                          in
+                          k: v:
+                          if v == true then
+                            k
+                          else if v == false || v == null then
+                            ""
+                          else
+                            originalMkKeyValue k v;
                       }
-                      // extraConf;
-                    }
+                      {
+                        globalSection = {
+                          inherit
+                            debug
+                            libdebug
+                            dinout
+                            debug-file
+                            connector
+                            cacert
+                            proxy
+                            timeout
+                            ;
+                        }
+                        // extraConf;
+                      }
+                  )
                 );
               }
               // extraEnv;
