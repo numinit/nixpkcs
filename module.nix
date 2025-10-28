@@ -260,7 +260,7 @@ in
                   };
 
                   storeInitHook = mkOption {
-                    type = types.nullOr types.path;
+                    type = with types; nullOr path;
                     default = pkgs.writeShellScript "default-store-init-hook" ":";
                     description = ''
                       Run the given script after the store is initialized and before nixpkcs runs.
@@ -368,10 +368,27 @@ in
                       example = "/etc/nixpkcs/so.pin";
                     };
 
+                    softFail = mkOption {
+                      type = types.bool;
+                      default = false;
+                      description = ''
+                        If set to true, exit with success if we can't check the key for renewal.
+                        This is useful for removable devices like yubikeys.
+                      '';
+                      example = true;
+                    };
+
                     force = mkOption {
                       type = types.bool;
                       default = false;
                       description = "Regenerate the key every time. This is dangerous, and is disabled by default.";
+                      example = true;
+                    };
+
+                    destroyOld = mkOption {
+                      type = types.bool;
+                      default = false;
+                      description = "Destroy the old key on the token when generating a new key. Defaults to false.";
                       example = true;
                     };
 
@@ -407,7 +424,7 @@ in
 
                     renewalPeriod = mkOption {
                       type = types.int;
-                      default = 14;
+                      default = -1;
                       description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
                       example = 14;
                     };
