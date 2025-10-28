@@ -18,14 +18,27 @@ strong authentication with smartcard-compatible devices.
 
 We try to stick to semver. Branches are formatted as `vX.Y` and tags are formatted as `vX.Y.Z`.
 
-Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/nixpkcs` if you like living on the edge.
+Use `github:numinit/nixpkcs/v1.3` for the 1.3 stable branch ("Dapper DER"), or `github:numinit/nixpkcs` if you like living on the edge.
 
 ## Changelog
 
+- 1.3.0 ("Dapper DER")
+    - **Rename `nixpkcs` to `security.pkcs11`.** Note that the old name still works with a warning. ([#19](https://github.com/numinit/nixpkcs/pull/19))
+    - **Support truly immutable key definitions instead of destructive renewals!** The new `certOptions.validStarting` option is a date in `YYYY-MM-DD` format.
+      If the current date is before the `validStarting` date, the key will not be created and nixpkcs will silently exit, allowing you to phase in new keys. ([#21](https://github.com/numinit/nixpkcs/pull/21))
+    - **Turn renewal off by default.** `certOptions.renewalPeriod` now defaults to -1.
+      Consider `certOptions.validStarting` and multiple immutable keys instead. ([#20](https://github.com/numinit/nixpkcs/pull/20))
+    - Support `keyOptions.softFail` (default false) to control whether the systemd unit fails if the token is missing. Useful for Yubikeys. ([#20](https://github.com/numinit/nixpkcs/pull/20))
+    - Support new `keyOptions.destroyOld` (default false) module option to control whether keys are destroyed upon renewal. ([#20](https://github.com/numinit/nixpkcs/pull/20))
+    - Support hex strings for key IDs. ([#22](https://github.com/numinit/nixpkcs/pull/22))
+    - Fix issues with the YubiHSM by switching the default PKCS#11 init behavior to auto instead of early.
+      This causes OpenSSL to load PKCS#11 libraries lazily, which is a better default behavior because it refrains from initializing the token
+      unless necessary. Buggy PKCS#11 libraries may run into issues, though none tested have shown problems. ([#17](https://github.com/numinit/nixpkcs/pull/17))
+    - Exit with a failure if there is an issue loading a certificate from the token after signing it. ([#18](https://github.com/numinit/nixpkcs/pull/18))
 - 1.2.1
     - Support the YubiHSM and NixOS 25.11. (@numinit, [#16](https://github.com/numinit/nixpkcs/issues/16))
     - Fix NixOS 25.11 shellcheck issues. (@Arbel-arad, [#15](https://github.com/numinit/nixpkcs/issues/15))
-- 1.2.0
+- 1.2.0 ("Carlsbad CA")
     - Support NixOS 25.05. Note that we are dropping support for 24.11 and previous with this change, and require using `tpm2-pkcs11.abrmd.pkcsModule` for Nebula now.
     - Drop patches for tpm2-pkcs11 since they are upstreamed in nixpkgs.
 - 1.1.9
@@ -59,13 +72,13 @@ Use `github:numinit/nixpkcs/v1.1` for the 1.1 stable branch, or `github:numinit/
 - 1.1.1
     - Support `<provider>.openssl` and `<provider>.opensc` passthrus
     - Support pkcs11-provider's debug environment variables with the OpenSSL wrapper
-- 1.1.0: Many new features.
+- 1.1.0 ("Beta BER"): Many new features.
     - **Fully declarative TPM2 and NSS store initialization!** You now don't need to do anything imperative to initialize a TPM2 or NSS store using nixpkcs.
     - **Nginx and Nebula support**, featuring integration tests with TPM2 and NSS
         - Note that first requests to nginx may cause a dbus timeout until the key is loaded, but subsequent requests are fast
     - New store initialization hook
     - Updated rekeying hook to take the key name in $1
-- 1.0: Initial release
+- 1.0 ("Alpha ASN"): Initial release
 
 ## Supported PKCS#11 consumers
 
@@ -139,8 +152,8 @@ security.pkcs11 = {
 
       # The token name. For TPM, this can be whatever you want, as long as it's consistent.
       # The default is `nixpkcs`; `pkcs11-tool --list-slots` will tell you for other tokens.
-      # token = "nixpkcs"; 
-      # token = "YubiKey PIV #123456"; 
+      # token = "nixpkcs";
+      # token = "YubiKey PIV #123456";
 
       # The key ID.
       # For yubikey, note the key mapping:
@@ -180,8 +193,15 @@ security.pkcs11 = {
         # At least 8 digits, maybe more. For the Yubikey, it's a 40 char hex string.
         soPinFile = "/etc/mgmt.pin";
 
-        # Warning! This will regenerate the key every day and at boot.
+        # Causes a missing token (e.g. a disconnected yubikey) to not fail the systemd unit.
+        # softFail = false;
+
+        # Warning! This will regenerate the key every day and at boot. Useful for testing.
         # force = true;
+
+        # Destroys the old key and certificate on the token upon renewal. Default to false.
+        # This may be useful to set to true if you truly do not care about the old key slots.
+        # destroyOld = false;
 
         # Needed for the Yubikey, but not needed for TPM and NSS.
         # loginAsUser = false;
@@ -198,9 +218,13 @@ security.pkcs11 = {
         # Certificate (and key) validity in days.
         validityDays = 365 * 3;
 
+        # When this key should be generated. nixpkcs won't do anything until this date,
+        # but you still can reference the key-to-be in your configs.
+        # validStarting = "2026-01-01";
+
         # Number of days prior to expiration this key should be renewed and replaced.
-        # Set to 0 to disable auto-renewal.
-        # renewalPeriod = 14;
+        # Set to less than 0 to disable auto-renewal.
+        # renewalPeriod = -1;
 
         # The subject.
         subject = "C=US/ST=California/L=Carlsbad/O=nixpkcs/CN=My CA Cert";

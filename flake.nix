@@ -2,6 +2,7 @@
   description = "Add support for PKCS#11 smartcards to various Nix packages";
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
+    flakever.url = "github:numinit/flakever";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
@@ -9,14 +10,26 @@
     inputs@{
       self,
       flake-parts,
+      flakever,
       nixpkgs,
       ...
     }:
+    let
+      flakeverConfig = flakever.lib.mkFlakever {
+        inherit inputs;
+        digits = [
+          1
+          2
+          1
+        ];
+      };
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       flake = {
         nixosModules.default = import ./module.nix self;
         overlays.default = import ./overlay.nix self;
-        version = "1.2.0";
+        inherit (flakeverConfig) version versionCode;
+        versionTemplate = "1.3.0-<rev>";
       };
 
       systems = [
