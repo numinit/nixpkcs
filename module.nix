@@ -51,6 +51,16 @@ let
 
   inherit (lib) types;
 
+  # Parses a PKCS#11 id into an integer.
+  parseId =
+    keyName: id:
+    if isInt id && id >= 0 then
+      id
+    else if isString id then
+      (builtins.fromTOML "id=0x${id}").id
+    else
+      throw "ID for nixpkcs key '${keyName}' was not an unsigned integer or hex string";
+
   # Creates a PKCS#11 URI.
   mkPkcs11Uri =
     {
@@ -232,7 +242,8 @@ in
               options =
                 let
                   authority = {
-                    inherit (config) token id;
+                    inherit (config) token;
+                    id = parseId name config.id;
                     slot-id = if config.slot == null then null else toString config.slot;
                     type = "private";
                   }
@@ -285,7 +296,7 @@ in
                   };
 
                   id = mkOption {
-                    type = types.ints.unsigned;
+                    type = with types; either ints.unsigned (strMatching "^[0-9a-fA-F]{1,16}$");
                     description = "The PKCS#11 key ID.";
                     example = 42;
                   };
@@ -547,10 +558,11 @@ in
                   NIXPKCS_KEY_SPEC =
                     let
                       filteredValue = {
+                        id = parseId name value.id;
+
                         # We don't want to pass the whole PKCS#11 module here; this should be enough.
                         inherit (value)
                           token
-                          id
                           uri
                           keyOptions
                           certOptions
