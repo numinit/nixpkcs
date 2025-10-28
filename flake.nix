@@ -81,7 +81,7 @@
                 { config, ... }:
                 {
                   virtualisation.tpm.enable = true;
-                  nixpkcs.tpm2.enable = true;
+                  security.pkcs11.tpm2.enable = true;
                   users.users."nebula-nixpkcs" = lib.mkIf (config.services.nebula.networks.nixpkcs.enable or false) {
                     extraGroups = [ "tss" ];
                   };
@@ -97,7 +97,7 @@
                 { config, ... }:
                 {
                   virtualisation.tpm.enable = true;
-                  nixpkcs.tpm2.enable = true;
+                  security.pkcs11.tpm2.enable = true;
                   users.users.nginx = {
                     extraGroups = [ "tss" ];
                   };

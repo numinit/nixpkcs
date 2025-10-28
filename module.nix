@@ -7,9 +7,50 @@ self:
   ...
 }:
 
-with lib;
-
 let
+  inherit (builtins) hashString;
+
+  inherit (lib.trivial) isInt mod toHexString;
+
+  inherit (lib.strings)
+    isString
+    typeOf
+    substring
+    split
+    escapeRegex
+    escapeURL
+    escapeShellArg
+    concatStrings
+    concatStringsSep
+    replaceStrings
+    fixedWidthString
+    toJSON
+    ;
+
+  inherit (lib.lists)
+    elemAt
+    length
+    filter
+    singleton
+    imap0
+    foldl
+    ;
+
+  inherit (lib.attrsets)
+    mapAttrs
+    mapAttrs'
+    mapAttrsToList
+    filterAttrs
+    optionalAttrs
+    nameValuePair
+    ;
+
+  inherit (lib.options) mkOption literalExpression;
+
+  inherit (lib.modules) mkIf mkMerge mkRenamedOptionModule;
+
+  inherit (lib) types;
+
   # Creates a PKCS#11 URI.
   mkPkcs11Uri =
     {
@@ -34,33 +75,33 @@ let
 
           # Support Nix's full integer width for PKCS#11 IDs.
           paddedValue = fixedWidthString 16 "0" (toHexString value);
-          splitValue = builtins.split "([0-9A-F]{2})" paddedValue;
-          replacedValue = lib.imap0 (
+          splitValue = split "([0-9A-F]{2})" paddedValue;
+          replacedValue = imap0 (
             idx: vals:
             let
-              even = lib.mod idx 2 == 0;
-              val = if even then vals else builtins.elemAt vals 0;
-              length = builtins.length splitValue;
+              even = mod idx 2 == 0;
+              val = if even then vals else elemAt vals 0;
+              splitLength = length splitValue;
             in
-            if even && idx < length - 1 && val == "" then "%" else val
+            if even && idx < splitLength - 1 && val == "" then "%" else val
           ) splitValue;
           deprefixedValue =
             let
-              split = builtins.split "^(${lib.escapeRegex zero})+" (lib.concatStrings replacedValue);
+              regexSplit = split "^(${escapeRegex zero})+" (concatStrings replacedValue);
             in
-            builtins.elemAt split (builtins.length split - 1);
+            elemAt regexSplit (length regexSplit - 1);
         in
         if deprefixedValue == "" then zero else deprefixedValue;
 
       # Serializes a string or int to a PKCS#11 value.
       serializePkcs11UriValue =
         value:
-        if builtins.isInt value && value >= 0 then
+        if isInt value && value >= 0 then
           intToUriValue value
-        else if builtins.isString value then
+        else if isString value then
           escapeURL value
         else
-          throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${builtins.type value}'";
+          throw "only 8-bit ints and strings are supported in PKCS#11 URIs; got '${typeOf value}'";
 
       # Converts a list of URI attrs to a query string.
       toQuery = mapAttrsToList (
@@ -69,23 +110,27 @@ let
       );
 
       # The authority string. Just a query string joined with ;.
-      authorityString = concatStringsSep ";" (builtins.filter (x: x != null) (toQuery authority));
+      authorityString = concatStringsSep ";" (filter (x: x != null) (toQuery authority));
 
       # The query string.
       queryString =
         let
-          queryValue = concatStringsSep "&" (builtins.filter (x: x != null) (toQuery query));
+          queryValue = concatStringsSep "&" (filter (x: x != null) (toQuery query));
         in
         if queryValue == "" then "" else "?" + queryValue;
     in
     "pkcs11:" + authorityString + queryString;
 
   # The nixpkcs config.
-  cfg = config.nixpkcs;
+  cfg = config.security.pkcs11;
 in
 {
+  imports = [
+    (mkRenamedOptionModule [ "nixpkcs" ] [ "security" "pkcs11" ])
+  ];
+
   options = {
-    nixpkcs = {
+    security.pkcs11 = {
       enable = mkOption {
         type = types.bool;
         default = false;
@@ -142,10 +187,8 @@ in
               }
 
               declare -A keys=(
-                ${lib.concatStringsSep "\n  " (
-                  lib.mapAttrsToList (
-                    name: value: "[${lib.escapeShellArg name}]=${lib.escapeShellArg value.uri}"
-                  ) cfg.keypairs
+                ${concatStringsSep "\n  " (
+                  mapAttrsToList (name: value: "[${escapeShellArg name}]=${escapeShellArg value.uri}") cfg.keypairs
                 )}
               )
 
@@ -193,11 +236,11 @@ in
                     slot-id = if config.slot == null then null else toString config.slot;
                     type = "private";
                   }
-                  // lib.optionalAttrs (!(config.pkcs11Module.noLabels or false)) {
+                  // optionalAttrs (!(config.pkcs11Module.noLabels or false)) {
                     # Only supply this for tokens that support labels.
                     object = name;
                   };
-                  query = lib.optionalAttrs (config.certOptions.pinFile != null) {
+                  query = optionalAttrs (config.certOptions.pinFile != null) {
                     pin-source = "file:${config.certOptions.pinFile}";
                   };
                 in
@@ -211,7 +254,7 @@ in
                   pkcs11Module = mkOption {
                     type = types.attrs;
                     description = "The PKCS#11 module to use for this key.";
-                    example = lib.literalExpression ''
+                    example = literalExpression ''
                       inherit (pkgs.yubico-piv-tool) pkcs11Module;
                     '';
                   };
@@ -227,7 +270,7 @@ in
                       This script also always has access to a wrapped OpenSSL and pkcs11-tool on its PATH, in addition to jq.
                       Returning nonzero from this script aborts nixpkcs.
                     '';
-                    example = lib.literalExpression ''
+                    example = literalExpression ''
                       pkgs.writeShellScript "store-init-hook" '''
                         chown -R alice:users "$NIXPKCS_STORE_DIR"
                       '''
@@ -248,7 +291,7 @@ in
                   };
 
                   slot = mkOption {
-                    type = types.nullOr types.ints.u8;
+                    type = with types; nullOr ints.u8;
                     default = null;
                     description = "The PKCS#11 slot ID. Not always required, but may be in some cases.";
                     example = 42;
@@ -276,10 +319,10 @@ in
                   };
 
                   extraEnv = mkOption {
-                    type = types.attrsOf types.str;
+                    type = with types; attrsOf str;
                     default = config.pkcs11Module.mkEnv { };
                     description = "Extra environment variables to pass to this key's systemd unit";
-                    example = lib.literalExpression ''
+                    example = literalExpression ''
                       { NSS_LIB_PARAMS = "configDir=/etc/softokn"; }
                     '';
                   };
@@ -307,19 +350,19 @@ in
                     };
 
                     usage = mkOption {
-                      type = types.listOf types.str;
+                      type = with types; listOf str;
                       default = [
                         "sign"
                         "derive"
                       ];
                       description = "The key usage. An array of sign|derive|decrypt|wrap.";
-                      example = lib.literalExpression ''
+                      example = literalExpression ''
                         ["sign" "derive" "decrypt"]
                       '';
                     };
 
                     soPinFile = mkOption {
-                      type = types.nullOr types.path;
+                      type = with types; nullOr path;
                       default = null;
                       description = "The file containing the security officer PIN.";
                       example = "/etc/nixpkcs/so.pin";
@@ -349,7 +392,7 @@ in
                     };
 
                     serial = mkOption {
-                      type = types.nullOr types.str;
+                      type = with types; nullOr str;
                       default = null;
                       description = "The serial to use for this certificate. Set to null to autogenerate. This should be a hex string, not decimal.";
                       example = "09f91102";
@@ -363,7 +406,7 @@ in
                     };
 
                     renewalPeriod = mkOption {
-                      type = types.ints.positive;
+                      type = types.int;
                       default = 14;
                       description = "The number of days before expiration that this certificate should be renewed. Set to -1 to disable auto-renewal.";
                       example = 14;
@@ -377,34 +420,34 @@ in
                     };
 
                     extensions = mkOption {
-                      type = types.listOf types.str;
+                      type = with types; listOf str;
                       default = [ ];
                       description = ''
                         Extensions to add. See OpenSSL documentation for the syntax.
                         If a `key=value` formatted item is provided, will add it using `-addext`.
                         Otherwise, adds it using `-extensions`.
                       '';
-                      example = lib.literalExpression ''
+                      example = literalExpression ''
                         ["v3_ca" "keyUsage=critical,nonRepudiation,keyCertSign,digitalSignature,cRLSign"]
                       '';
                     };
 
                     pinFile = mkOption {
-                      type = types.nullOr types.path;
+                      type = with types; nullOr path;
                       default = null;
                       description = "The file containing the user PIN.";
                       example = "/etc/nixpkcs/user.pin";
                     };
 
                     writeTo = mkOption {
-                      type = types.nullOr types.path;
+                      type = with types; nullOr path;
                       default = null;
                       description = "Write the certificate to this path whenever we regenerate it. Overridden by manually setting rekeyHook.";
                       example = "/home/alice/cert.crt";
                     };
 
                     rekeyHook = mkOption {
-                      type = types.nullOr types.path;
+                      type = with types; nullOr path;
                       default =
                         if config.certOptions.writeTo == null then
                           null
@@ -424,7 +467,7 @@ in
                         This script always has access to a wrapped OpenSSL and pkcs11-tool on its PATH, in addition to jq.
                         Returning nonzero from this script aborts rekey but returns normally.
                       '';
-                      example = lib.literalExpression ''
+                      example = literalExpression ''
                         pkgs.writeShellScript "rekey-hook" '''
                           if [ "$2" == 'new' ]; then
                             cat > /home/alice/cert.crt
@@ -444,23 +487,23 @@ in
 
   config =
     let
-      enabledKeypairs = if cfg.enable then lib.filterAttrs (_: value: value.enable) cfg.keypairs else [ ];
+      enabledKeypairs = if cfg.enable then filterAttrs (_: value: value.enable) cfg.keypairs else [ ];
     in
     mkMerge [
       (mkIf cfg.enable {
         environment = {
           # Place the nixpkgs-uri package on PATH.
-          systemPackages = mkIf cfg.uri.enable (lib.singleton cfg.uri.package);
+          systemPackages = mkIf cfg.uri.enable (singleton cfg.uri.package);
 
           # Automatically set environment variables for the specified keypairs.
           variables = mkIf cfg.environment.enable (
-            lib.foldl (s: x: s // x) { } (lib.mapAttrsToList (name: value: value.extraEnv) enabledKeypairs)
+            foldl (s: x: s // x) { } (mapAttrsToList (name: value: value.extraEnv) enabledKeypairs)
           );
         };
 
-        systemd.services = lib.mapAttrs' (
+        systemd.services = mapAttrs' (
           name: value:
-          lib.nameValuePair "nixpkcs@${name}" {
+          nameValuePair "nixpkcs@${name}" {
             description = "nixpkcs service for key '${name}'";
             startAt = "*-*-* 00:00:00";
             wants = [ "basic.target" ];
@@ -472,9 +515,9 @@ in
             environment =
               let
                 # Escapes systemd %-specifiers in the given value.
-                escapeSpecifiers = value: builtins.replaceStrings [ "%" ] [ "%%" ] (builtins.toString value);
+                escapeSpecifiers = value: replaceStrings [ "%" ] [ "%%" ] (toString value);
               in
-              lib.mapAttrs (_: envValue: (escapeSpecifiers envValue)) (
+              mapAttrs (_: envValue: (escapeSpecifiers envValue)) (
                 value.extraEnv
                 // {
                   NIXPKCS_KEY_SPEC =
@@ -490,7 +533,7 @@ in
                           ;
                       };
                     in
-                    builtins.toJSON filteredValue;
+                    toJSON filteredValue;
                   NIXPKCS_LOCK_FILE =
                     let
                       # Come up with a lockfile key. We want to avoid concurrently running two instances
@@ -498,22 +541,22 @@ in
                       # connections to hardware involved. Better safe than sorry with hardware and
                       # cryptographic keying, and this involves both. So just use the Nix store path
                       # of the PKCS#11 token library we are using.
-                      pkcs11ModuleKey = builtins.substring 0 8 (builtins.hashString "sha256" value.pkcs11Module.path);
+                      pkcs11ModuleKey = substring 0 8 (hashString "sha256" value.pkcs11Module.path);
                       lockfileKey = "nixpkcs-${pkcs11ModuleKey}.lock";
                     in
                     "/var/lock/${lockfileKey}";
                 }
-                // lib.optionalAttrs ((value.pkcs11Module.storeInit or null) != null) {
+                // optionalAttrs ((value.pkcs11Module.storeInit or null) != null) {
                   NIXPKCS_STORE_INIT = value.pkcs11Module.storeInit;
                 }
-                // lib.optionalAttrs (value.storeInitHook != null) {
+                // optionalAttrs (value.storeInitHook != null) {
                   NIXPKCS_STORE_INIT_HOOK = value.storeInitHook;
                 }
-                // lib.optionalAttrs (value.pkcs11Module.noLabels or false) {
+                // optionalAttrs (value.pkcs11Module.noLabels or false) {
                   # For, e.g. Yubikeys, which don't support them.
                   NIXPKCS_NO_LABELS = 1;
                 }
-                // lib.optionalAttrs value.debug {
+                // optionalAttrs value.debug {
                   NIXPKCS_DEBUG = 1;
                 }
               );
@@ -527,11 +570,11 @@ in
       (mkIf cfg.pcsc.enable {
         services.pcscd.enable = true;
       })
-      (mkIf (cfg.pcsc.enable && builtins.length cfg.pcsc.users > 0) {
+      (mkIf (cfg.pcsc.enable && length cfg.pcsc.users > 0) {
         environment.systemPackages =
           let
             pcscPolkitRule = pkgs.writeTextDir "share/polkit-1/rules.d/10-pcsc.rules" ''
-              var users = ${builtins.toJSON cfg.pcsc.users};
+              var users = ${toJSON cfg.pcsc.users};
               polkit.addRule(function (action, subject) {
                 if (action.id === "org.debian.pcsc-lite.access_pcsc" ||
                     action.id === "org.debian.pcsc-lite.access_card") {
@@ -545,7 +588,7 @@ in
               });
             '';
           in
-          lib.singleton pcscPolkitRule;
+          singleton pcscPolkitRule;
       })
       (mkIf cfg.tpm2.enable {
         security.tpm2 = {

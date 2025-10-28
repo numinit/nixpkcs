@@ -118,7 +118,7 @@ Since a Nix config speaks a thousand words, here are examples for both Yubikey a
 The Yubikey-specific config parts are commented below.
 
 ```nix
-nixpkcs = {
+security.pkcs11 = {
   enable = true;
   pcsc = {
     enable = true;
@@ -252,14 +252,14 @@ To automatically manage keys, you will need to use the NixOS module.
 
 |Option|Default|Description|Example|
 |:-----|:------|:----------|:------|
-|`nixpkcs.enable`|false|Enables automated key management|`nixpkcs.enable = true`|
-|`nixpkcs.pcsc.enable`|false|Enables the PCSC smartcard daemon. You will need this for Yubikeys.|`nixpkcs.pcsc.enable = true`|
-|`nixpkcs.pcsc.users`|[]|Sets the users that can access smartcards other than root.|`nixpkcs.pcsc.users = ["alice" "bob"]`|
-|`nixpkcs.tpm2.enable`|false|Enables TPM2 and tpm2-abrmd (the [TPM Access Broker and Resource Daemon](https://github.com/tpm2-software/tpm2-abrmd)). You will obviously need this for TPM2.|`true`|
-|`nixpkcs.environment.enable`|true|Adds all keypair extraEnv to the system environment. Useful if a program you would like to use isn't wrapped with nixpkcs.|true|
-|`nixpkcs.uri.enable`|true|Enables the `nixpkcs-uri` command, converting keypair names to PKCS#11 URIs.|true|
-|`nixpkcs.uri.package`|nixpkcs-uri|The package to use for the `nixpkcs-uri` command.||
-|`nixpkcs.keypairs.<name>`|N/A|Each keypair.|See above|
+|`security.pkcs11.enable`|false|Enables automated key management|`security.pkcs11.enable = true`|
+|`security.pkcs11.pcsc.enable`|false|Enables the PCSC smartcard daemon. You will need this for Yubikeys.|`security.pkcs11.pcsc.enable = true`|
+|`security.pkcs11.pcsc.users`|[]|Sets the users that can access smartcards other than root.|`security.pkcs11.pcsc.users = ["alice" "bob"]`|
+|`security.pkcs11.tpm2.enable`|false|Enables TPM2 and tpm2-abrmd (the [TPM Access Broker and Resource Daemon](https://github.com/tpm2-software/tpm2-abrmd)). You will obviously need this for TPM2.|`true`|
+|`security.pkcs11.environment.enable`|true|Adds all keypair extraEnv to the system environment. Useful if a program you would like to use isn't wrapped with nixpkcs.|true|
+|`security.pkcs11.uri.enable`|true|Enables the `nixpkcs-uri` command, converting keypair names to PKCS#11 URIs.|true|
+|`security.pkcs11.uri.package`|nixpkcs-uri|The package to use for the `nixpkcs-uri` command.||
+|`security.pkcs11.keypairs.<name>`|N/A|Each keypair.|See above|
 
 ## Quickstart: Consuming a PKCS#11 module
 
@@ -309,8 +309,8 @@ Leaf certificates will be for clients and servers. A single root certificate (or
     1. Make sure the CCID interface is enabled.
         - Yubikey 4: `ykman config mode OTP+FIDO+CCID`.
         - Yubikey 5: `ykman config usb`
-    2. Set `nixpkcs.enable = true`.
-    3. Optionally set `nixpkcs.pcsc.users = ["your username"]` so the correct users can access the Yubikey as a smartcard.
+    2. Set `security.pkcs11.enable = true`.
+    3. Optionally set `security.pkcs11.pcsc.users = ["your username"]` so the correct users can access the Yubikey as a smartcard.
 
 2. Set up your [PIN, PUK (PIN Unlock Key), and Management Key](https://developers.yubico.com/PIV/Introduction/Admin_access.html) with **either** ykman or [yubico-piv-tool](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=yubico-piv-tool).
     - Both are in nixpkgs. ykman may be slightly easier, but yubico-piv-tool provides a few more options. Note the [defaults](https://developers.yubico.com/PIV/Introduction/Admin_access.html) for the PIN, PUK, and Management Key. Keep them in a safe place.
