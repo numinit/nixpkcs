@@ -50,7 +50,7 @@ let
             };
           };
 
-          nixpkcs = {
+          security.pkcs11 = {
             enable = true;
             keypairs = {
               ${name} = lib.recursiveUpdate {
@@ -104,7 +104,7 @@ let
             if [ ! -f ${lib.escapeShellArg soPinFile} ]; then
               # If we are logging in as the user, place the user PIN in the SO PIN file.
               ${
-                if config.nixpkcs.keypairs.${name}.keyOptions.loginAsUser then
+                if config.security.pkcs11.keypairs.${name}.keyOptions.loginAsUser then
                   ''
                     ln -s ${lib.escapeShellArg pinFile} ${lib.escapeShellArg soPinFile}
                   ''
@@ -115,17 +115,17 @@ let
                   ''
               }
             fi
-            ${lib.optionalString ((config.nixpkcs.keypairs.${name}.uri or null) != null) ''
+            ${lib.optionalString ((config.security.pkcs11.keypairs.${name}.uri or null) != null) ''
               mkdir -p /etc/nebula
               if [ ! -f /etc/nebula/${name}.key ]; then
-                ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ${name} | tee /etc/nebula/${name}.key
+                ${config.security.pkcs11.uri.package}/bin/nixpkcs-uri ${name} | tee /etc/nebula/${name}.key
                 chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
               fi
             ''}
-            ${lib.optionalString ((config.nixpkcs.keypairs.ca.uri or null) != null) ''
+            ${lib.optionalString ((config.security.pkcs11.keypairs.ca.uri or null) != null) ''
               mkdir -p /etc/nebula/ca
               if [ ! -f /etc/nebula/ca/ca.key ]; then
-                ${config.nixpkcs.uri.package}/bin/nixpkcs-uri ca | tee /etc/nebula/ca/ca.key
+                ${config.security.pkcs11.uri.package}/bin/nixpkcs-uri ca | tee /etc/nebula/ca/ca.key
                 chown -R nebula-nixpkcs:nebula-nixpkcs /etc/nebula || true
               fi
             ''}
@@ -154,7 +154,7 @@ let
             enable = lib.mkDefault true;
             ca = "/etc/nebula/ca.crt";
             cert = "/etc/nebula/${name}.crt";
-            key = config.nixpkcs.keypairs.${name}.uri;
+            key = config.security.pkcs11.keypairs.${name}.uri;
             listen = {
               host = "0.0.0.0";
               port = 4242;
@@ -229,7 +229,7 @@ testers.runNixOSTest {
         "10.32.0.2" = [ "192.168.1.2:4242" ]; # Bob
       };
       extraConfig = {
-        nixpkcs = {
+        security.pkcs11 = {
           enable = true;
           keypairs = {
             ca = lib.recursiveUpdate {

@@ -34,7 +34,7 @@ let
             self.nixosModules.default
           ];
 
-          nixpkcs = {
+          security.pkcs11 = {
             enable = true;
             keypairs = {
               ${name} = lib.recursiveUpdate {
@@ -77,7 +77,7 @@ let
             if [ ! -f ${lib.escapeShellArg soPinFile} ]; then
               # If we are logging in as the user, place the user PIN in the SO PIN file.
               ${
-                if config.nixpkcs.keypairs.${name}.keyOptions.loginAsUser then
+                if config.security.pkcs11.keypairs.${name}.keyOptions.loginAsUser then
                   ''
                     ln -s ${lib.escapeShellArg pinFile} ${lib.escapeShellArg soPinFile}
                   ''
@@ -107,13 +107,13 @@ let
             recommendedGzipSettings = true;
 
             appendConfig = ''
-              ${lib.concatMapStringsSep "\n" (x: "env ${x};") (builtins.attrNames extraEnv)}
+              ${lib.concatMapStringsSep "\n" (x: "env ${x};") (lib.attrNames extraEnv)}
             '';
 
             virtualHosts."nixpkcs.local" = {
               forceSSL = true;
               sslCertificate = "/etc/keys/nixpkcs.local.crt";
-              sslCertificateKey = pkgs.pkcs11-provider.uri2pem config.nixpkcs.keypairs.${name}.uri;
+              sslCertificateKey = pkgs.pkcs11-provider.uri2pem config.security.pkcs11.keypairs.${name}.uri;
               locations."/" = {
                 root = ./nginx/root;
               };
