@@ -40,7 +40,7 @@ let
               ${name} = lib.recursiveUpdate {
                 enable = true;
                 inherit pkcs11Module extraEnv storeInitHook;
-                id = 244837814094590; # 0xDEADBEEFCAFE
+                id = "deadbeefcafe";
                 debug = true;
                 keyOptions = {
                   algorithm = "RSA";
