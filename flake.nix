@@ -4,6 +4,7 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     flakever.url = "github:numinit/flakever";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-lib.url = "github:nix-community/nixpkgs.lib";
   };
 
   outputs =
@@ -12,6 +13,7 @@
       flake-parts,
       flakever,
       nixpkgs,
+      nixpkgs-lib,
       ...
     }:
     let
@@ -23,11 +25,15 @@
           1
         ];
       };
+
+      inherit (nixpkgs-lib) lib;
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       flake = {
         nixosModules.default = import ./module.nix self;
-        overlays.default = import ./overlay.nix self;
+        overlays.default = import ./overlay.nix {
+          inherit self lib;
+        };
         inherit (flakeverConfig) version versionCode;
         versionTemplate = "1.3.0-<rev>";
       };
