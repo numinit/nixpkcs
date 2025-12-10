@@ -35,7 +35,7 @@
           inherit self lib;
         };
         inherit (flakeverConfig) version versionCode;
-        versionTemplate = "1.3.0-<rev>";
+        versionTemplate = "1.3.1-<rev>";
       };
 
       systems = [

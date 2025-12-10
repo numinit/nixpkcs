@@ -22,6 +22,8 @@ Use `github:numinit/nixpkcs/v1.3` for the 1.3 stable branch ("Dapper DER"), or `
 
 ## Changelog
 
+- 1.3.1
+    - Support Nebula 1.10.0 with `pkcs11` tag in nixpkgs 25.11.
 - 1.3.0 ("Dapper DER")
     - **Rename `nixpkcs` to `security.pkcs11`.** Note that the old name still works with a warning. ([#19](https://github.com/numinit/nixpkcs/pull/19))
     - **Support truly immutable key definitions instead of destructive renewals!** The new `certOptions.validStarting` option is a date in `YYYY-MM-DD` format.
