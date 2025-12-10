@@ -1,8 +1,7 @@
-self:
+{ self, lib }:
 
 final: prev:
 let
-  inherit (final) lib;
   # Creates an attrset mapping package names to that package with the given PKCS#11 module.
   mkPkcs11Consumers =
     package:
@@ -68,42 +67,50 @@ in
 {
   ### PATCHES ###
   nebula =
-    let
-      version = "${prev.nebula.version}-pkcs11";
-      patchedSrc = final.stdenv.mkDerivation {
-        name = "nebula-${version}-patched";
-        inherit (prev.nebula) src;
-        patches = [
-          (final.fetchpatch {
-            url = "https://github.com/slackhq/nebula/commit/35603d1c39fa8bfb0d35ef7ee29716023d0c65c0.patch";
-            hash = "sha256-uTE+us+9mH45iBrR0MhH5bFzMSzzyjCitKLJiVpTMR0=";
-          })
-        ];
-        phases = [
-          "unpackPhase"
-          "patchPhase"
-          "installPhase"
-        ];
-        installPhase = "cp -Ra . $out";
-      };
-    in
-    (prev.nebula.override {
-      buildGoModule =
-        args:
-        final.buildGoModule (
-          args
-          // {
+    if lib.findFirst (x: x == "pkcs11") null (prev.nebula.tags or [ ]) == null then
+      if lib.versionOlder prev.nebula.version "1.10.0" then
+        let
+          version = "${prev.nebula.version}-pkcs11";
+          patchedSrc = final.stdenv.mkDerivation {
+            name = "nebula-${version}-patched";
+            inherit (prev.nebula) src;
+            patches = [
+              (final.fetchpatch {
+                url = "https://github.com/slackhq/nebula/commit/35603d1c39fa8bfb0d35ef7ee29716023d0c65c0.patch";
+                hash = "sha256-uTE+us+9mH45iBrR0MhH5bFzMSzzyjCitKLJiVpTMR0=";
+              })
+            ];
+            phases = [
+              "unpackPhase"
+              "patchPhase"
+              "installPhase"
+            ];
+            installPhase = "cp -Ra . $out";
+          };
+        in
+        (prev.nebula.override {
+          buildGoModule =
+            args:
+            final.buildGoModule (
+              args
+              // {
+                inherit version;
+                src = patchedSrc;
+                vendorHash = "sha256-7G7yp6NV+ECz4MRtHRjF6tiHD9Uq2x8s6y4iIfRih/o=";
+              }
+            );
+        }).overrideAttrs
+          (package: {
             inherit version;
             src = patchedSrc;
-            vendorHash = "sha256-7G7yp6NV+ECz4MRtHRjF6tiHD9Uq2x8s6y4iIfRih/o=";
-          }
-        );
-    }).overrideAttrs
-      (package: {
-        inherit version;
-        src = patchedSrc;
-        tags = [ "pkcs11" ] ++ (package.tags or [ ]);
-      });
+            tags = [ "pkcs11" ] ++ (package.tags or [ ]);
+          })
+      else
+        prev.nebula.overrideAttrs (package: {
+          tags = [ "pkcs11" ] ++ (package.tags or [ ]);
+        })
+    else
+      prev.nebula;
 
   ### WRAPPERS ###
 
